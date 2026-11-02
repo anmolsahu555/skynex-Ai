@@ -1,0 +1,800 @@
+# SKYNEX AI: REMOVE DEMO DATA AND IMPLEMENT THE REAL AI BRAND-GOVERNANCE ENGINE
+
+## 1. YOUR ROLE AND OBJECTIVE
+
+Act as a senior full-stack engineer, AI engineer, document-processing engineer, database architect, and QA engineer.
+
+I already have an existing SkyNex AI website with a dashboard and these sections:
+
+1. Review Content
+2. Brand Knowledge
+3. Review History
+4. Recurring Issues
+
+The interface exists, but it currently contains fictional demo brands, example rules, sample statistics, and simulated workflows.
+
+Your task is to convert the EXISTING application into a functional, AI-powered brand-governance prototype that can be used by different organisations with their own brand guidelines, documents, product information, visual assets, and content.
+
+**Do not build another frontend from scratch. Inspect the complete existing project and extend it. Preserve the existing design, routing, components, working backend integrations, and useful functionality.**
+
+Do not stop after writing a plan. Implement the changes, run the available tests, fix errors, and report what genuinely works.
+
+## 2. THE CORE PRODUCT REQUIREMENT
+
+SkyNex AI must allow an organisation to upload its brand knowledge, extract individual rules using AI, review and approve those rules, and then evaluate submitted content against that organisation's approved knowledge.
+
+The complete workflow must be:
+
+Brand/workspace creation
+→ Brand knowledge upload
+→ Text and document extraction
+→ AI rule interpretation
+→ Candidate rule list
+→ Human rule approval
+→ Content submission
+→ Content extraction and analysis
+→ Approved-rule matching
+→ Explainable findings and suggested corrections
+→ Human review and decision
+→ Saved review history
+→ Recurring-issue and guideline-quality insights
+
+Every step must work with actual application data. Do not use fake success messages, static results, hardcoded counts, or sample rules in production.
+
+## 3. FIRST, REMOVE ALL DEMO DATA
+
+Completely remove the fictional demonstration data currently shown in the application, including:
+
+- NovaPay demo brand and its fictional company information.
+- AeroSip demo brand and its fictional company information.
+- SkyNex Cloud demo brand, if it is being used as sample company data.
+- Fictional rules such as NP-RULE-01 and NP-RULE-02.
+- Example product names, prices, claims, prohibited phrases and supporting documents.
+- Prepopulated review history.
+- Prepopulated recurring-issue alerts.
+- Hardcoded statistics such as “5 active,” “37 reviews,” and “5 alerts.”
+- The fictional reviewer profile “Marcus Vance,” unless it is already an actual authenticated user.
+- The “Run NovaPay Sample Ad” button and other demo actions.
+- Seeded example data, mock API responses, fake findings, and fallback arrays that make the interface appear functional.
+
+Search the entire project for demo values. Check frontend components, constants, seed scripts, database rows, fixtures, localStorage, sessionStorage, mock APIs, backend defaults, and test initialisation.
+
+Important:
+- Keep “SkyNex AI” as the actual application name.
+- Do not remove application features simply because they were initially demonstrated using sample data.
+- Preserve the database schema and user-created information where appropriate.
+- Remove only known demonstration records from the existing environment.
+- Do not implement a database reset that deletes future customers' uploaded files or saved reviews.
+- Keep synthetic records isolated inside automated test fixtures and development-only tests. They must never populate the live application.
+- Do not replace the removed demo data with new fictional companies or fabricated metrics.
+
+After cleanup, a new organisation must see a genuine onboarding or empty state. It must be able to create its own brand, upload its own materials, and start using the application.
+
+## 4. MAKE THE APPLICATION ORGANISATION-SPECIFIC
+
+The platform must be usable by different organisations without mixing their information.
+
+Inspect the existing authentication and database architecture first.
+
+Reuse existing authentication if available. Otherwise, implement the simplest viable account and workspace/organisation setup supported by the project.
+
+Each organisation should be able to create and manage its own brands. Each brand must have its own approved facts, terminology, policies, assets, sources, rules, reviews, and history.
+
+Enforce data isolation on the backend, not just by filtering items in the frontend.
+
+Every organisation-owned record must be associated with the appropriate organisation and, where relevant, brand. Verify access permissions on every read, upload, update, approval, deletion, and review request.
+
+Support these roles where the existing architecture permits:
+- Administrator: manages the workspace, brand knowledge, members and permissions.
+- Reviewer/manager: reviews findings, approves rules, comments and makes authorised decisions.
+- Creator: submits content, views findings and edits drafts.
+
+If role-based access is not fully implemented in the current app, implement a practical prototype version without pretending that frontend-only role switching provides security.
+
+New users must not see another organisation's uploaded documents, extracted rules, content, findings, or analytics.
+
+## 5. BRAND KNOWLEDGE: TURN DOCUMENTS INTO APPROVED RULES
+
+The Brand Knowledge page is a central feature, not just a table of manually entered rules.
+
+### 5.1 Create a usable onboarding flow
+
+When a user has no brand configured, show:
+
+“Create your brand workspace”
+
+Allow the user to enter:
+- Brand or organisation name.
+- Optional description and industry.
+- Optional preferred language.
+- Optional website or internal reference information.
+
+After creation, show a clear next step to upload brand knowledge.
+
+Do not insert any default brand or default approved rules.
+
+### 5.2 Support real document uploads
+
+Allow users to upload multiple files in one batch.
+
+For the prototype, support the following where technically feasible in the existing stack:
+
+- PDF, including long policy documents.
+- DOCX.
+- TXT and Markdown.
+- CSV and XLSX for product facts, pricing, terminology and structured tables.
+- PNG, JPEG and WebP for brand reference images, approved advertising examples, logos, and other visual assets.
+
+Validate the actual file type, MIME type, size, and upload permissions on the server. Set sensible configurable limits. Explain unsupported formats clearly instead of pretending they were processed.
+
+Provide a proper upload interface with:
+- Drag-and-drop and browse.
+- File names, types and sizes.
+- Upload and processing status.
+- Success and failure states per file.
+- Retry or remove actions.
+- A source library containing previously uploaded materials.
+- Processing progress and a clear indication of what still needs attention.
+
+Do not require users to manually retype a 100-page brand guideline.
+
+### 5.3 Build a document ingestion pipeline
+
+For every uploaded source, run a real extraction pipeline.
+
+**PDFs:** Extract native text, page numbers, headings, paragraphs, tables and relevant structural information where possible. Use OCR or the document-capable AI model for scanned PDFs and image-based pages. Preserve page references.
+
+**DOCX:** Extract paragraphs, headings, lists and tables. Preserve section titles.
+
+**TXT/Markdown:** Extract the actual text and meaningful section structure.
+
+**CSV/XLSX:** Extract sheet names, column headers, rows and values. Treat tables such as price lists as structured facts, not just unlabelled text.
+
+**Images:** Use a vision-capable model or a real OCR/vision pipeline to read visible text and identify relevant visual references. Mark unreadable text or uncertain interpretations.
+
+For every source, record:
+- Source ID and original filename.
+- Organisation and brand IDs.
+- MIME type and file size.
+- Upload time and processing status.
+- Extraction status.
+- Page, section, sheet or image references where available.
+- Any extraction warnings.
+
+Store original source files in application-managed storage suitable for this prototype. Do not depend on a temporary AI-provider file as the permanent copy.
+
+For long documents, process the content in sections or chunks with overlap where appropriate. Preserve source metadata throughout the process. Do not silently truncate a large document and then report that the entire document was understood.
+
+If a document cannot be processed fully, show exactly which portion or pages were processed and which failed.
+
+### 5.4 AI must convert the extracted material into individual rule candidates
+
+After extraction, analyse the content and identify potential brand-governance rules.
+
+The AI should identify, where supported by the source:
+
+- Official brand names and spelling.
+- Product and service names.
+- Approved product facts and specifications.
+- Prices, plans, dates and other changing facts.
+- Approved claims and claims requiring evidence.
+- Prohibited, restricted or legally sensitive claims.
+- Required and forbidden terminology.
+- Tone of voice and writing style.
+- Messaging principles and positioning.
+- Target audience and communication requirements.
+- Calls to action.
+- Required disclaimers.
+- Formatting and typography requirements.
+- Approved visual assets, logos and brand colours.
+- Accessibility expectations.
+- Channel-specific rules, such as rules for advertisements or social media.
+- Approval and publication requirements.
+
+Do not force every extracted passage into a rule. Some passages are background information, examples, explanations or ambiguous statements.
+
+Classify each extracted item as one of:
+- Potential rule.
+- Approved fact candidate.
+- Approved asset candidate.
+- Example/reference material.
+- Informational context.
+- Ambiguous or conflicting instruction.
+
+Every potential rule should have a useful, individual record rather than one enormous combined summary.
+
+### 5.5 Use a proper rule structure
+
+Each rule should support fields similar to:
+
+- Rule ID.
+- Brand ID and organisation ID.
+- Rule title.
+- Rule type/category.
+- Plain-language rule statement.
+- Trigger, forbidden or matching patterns, when relevant.
+- Approved wording, fact or value, when relevant.
+- Severity or priority, when justified by the source.
+- Source document ID.
+- Exact supporting excerpt.
+- Page, section, sheet or source location.
+- Extraction confidence or uncertainty.
+- Approval status.
+- Created/updated timestamps.
+- Approver and approval timestamp.
+- Rule version and source version, when available.
+
+Generate stable identifiers for saved rules. Do not invent a source citation or page number that the extraction pipeline cannot verify.
+
+### 5.6 Implement a candidate review and approval interface
+
+After document processing, show a rule review queue.
+
+The user must be able to:
+- Preview the original source.
+- Read the extracted rule.
+- See its category and relevant approved value.
+- Read the supporting source excerpt.
+- Open the original page, section or table where possible.
+- Edit the title, category, rule text and approved value.
+- Approve a rule.
+- Reject a rule.
+- Keep a rule as a draft.
+- Bulk-approve selected candidates after reviewing them.
+- Search, filter and sort candidates.
+- Review duplicate or conflicting candidates.
+- Reprocess a source when extraction fails or needs improvement.
+
+Use the existing Brand Knowledge table layout where possible. The rule list should be comprehensive and searchable, with columns for rule ID/type, rule title and statement, trigger/forbidden patterns, approved content/value, supporting source reference, approval status and actions.
+
+Long rulebooks must be able to produce a long list of separate rules without breaking the UI.
+
+Newly extracted rules must start as candidates or drafts. They must NOT automatically become authoritative approved rules.
+
+If two source documents conflict, identify the conflict, display both source excerpts and ask an authorised human to resolve it. Do not silently select one.
+
+A user should be able to upload an updated policy and review changed, added or potentially outdated rules without destroying the historical record of earlier approved rules.
+
+## 6. IMPLEMENT THE ACTUAL AI INTEGRATION
+
+Use the AI provider and framework already supported by the existing project if an actual working integration exists.
+
+If no suitable model integration exists, use the Gemini API as the first implementation option because the project needs text understanding, document processing and image analysis.
+
+Inspect the current application architecture before choosing the implementation. Do not rewrite the entire project just to introduce another framework.
+
+### 6.1 Secure integration
+
+Use the official, currently supported SDK/API for the selected model.
+
+Keep the model provider configurable through server-side environment variables or the platform's secure secrets manager, for example:
+
+- GEMINI_API_KEY
+- GEMINI_MODEL
+
+Use a currently supported, multimodal-capable model for image and PDF analysis. Make the model configurable instead of scattering a model name throughout the source code.
+
+Critical security rules:
+- Never hardcode the API key in the frontend.
+- Never expose it in browser JavaScript or public configuration.
+- Never send it to the user as part of a response.
+- Never commit it to source control.
+- Make real server-side requests through the backend or a secure server-side API route.
+- Display a clear configuration error if the key is missing.
+- Handle timeouts, rate limits, unavailable models, malformed responses and API errors.
+
+Provide clear setup instructions for adding the API key to the development environment and the deployment platform's secret settings.
+
+### 6.2 Use structured AI responses
+
+Do not build the core application around unstructured paragraphs produced by a chatbot.
+
+Use schema-constrained JSON responses when supported by the selected provider, then validate the response using application-side schemas and business rules.
+
+Define structured schemas for:
+1. Document extraction results.
+2. Candidate rule extraction.
+3. Rule conflicts and duplicates.
+4. Content extraction.
+5. Review findings.
+6. Suggested corrections.
+7. Uncertainty and verification requests.
+
+Validate every response before saving or displaying it. If the model returns invalid or incomplete data, show a recoverable error or retry with safe limits.
+
+### 6.3 Separate deterministic checks from AI judgement
+
+Use deterministic code for checks that can be verified reliably:
+- Exact or normalised product-name violations.
+- Known forbidden phrases.
+- Exact approved prices and numerical facts.
+- Dates and specifications where a reliable approved value exists.
+- Required disclosures.
+- Other explicit rules with testable conditions.
+
+Use AI for contextual checks:
+- Tone and voice.
+- Messaging consistency.
+- Meaning-based claim interpretation.
+- Context-sensitive terminology.
+- Relevance of a disclaimer.
+- Contextual relationship between content and approved rules.
+- Visual interpretation where the model can inspect the actual image.
+
+Do not let AI override an authoritative, approved fact without explaining the conflict.
+
+When a deterministic check and a contextual model disagree, preserve the evidence and mark the finding for human review rather than hiding the disagreement.
+
+## 7. BUILD RULE RETRIEVAL: THE CONTENT REVIEW MUST USE APPROVED BRAND KNOWLEDGE
+
+Do not send an entire organisation's library into every AI request.
+
+Implement a retrieval process that:
+
+1. Identifies the organisation and selected brand.
+2. Loads only that brand's currently approved and applicable rules.
+3. Searches relevant approved rules using categories, terms and reliable matching.
+4. Retrieves the corresponding source excerpts and approved values.
+5. Sends the submitted content plus the relevant rules and evidence to the analysis model.
+6. Validates findings against saved rule IDs and source records.
+7. Stores the results with the rule versions that were used.
+
+For the prototype, a hybrid approach is acceptable:
+- Deterministic keyword and phrase matching.
+- Category and metadata filtering.
+- Semantic retrieval or embeddings if supported by the existing architecture and feasible to implement reliably.
+
+If semantic retrieval is implemented, always enforce organisation and brand filters before using retrieved results. Similarity alone does not make a rule applicable.
+
+The review engine must query the approved rules that the user has actually created. It must never silently fall back to NovaPay rules, built-in fictional policies, a model's generic brand assumptions or another customer's documents.
+
+When a brand has no approved rules, explain that a meaningful brand-specific review cannot yet be completed. Offer the user a clear route to process and approve brand knowledge.
+
+## 8. REVIEW CONTENT: SUPPORT REAL TEXT, PDFS AND IMAGES
+
+Make Review Content the central working area.
+
+Provide three obvious input methods:
+- Paste or type text.
+- Upload a document.
+- Upload an advertisement or content image.
+
+Support PDF, image and text review as complete, tested workflows. Support other formats only when their extraction and review pipelines are actually implemented.
+
+A creator must be able to submit:
+- Advertisement copy.
+- Social media captions and posts.
+- Product descriptions.
+- Marketing emails.
+- Campaign briefs.
+- PDF documents.
+- Advertisement images containing text and visual elements.
+- Other supported content formats.
+
+Allow the creator to identify the content type or channel, where relevant. This helps apply appropriate approved rules.
+
+### 8.1 Text submission
+
+Analyse the actual user-provided text. Do not substitute a sample paragraph or precomputed result.
+
+Run applicable deterministic checks, retrieve relevant approved rules and use the model for contextual analysis.
+
+### 8.2 PDF submission
+
+Extract the PDF's real content and preserve page-level references. Analyse relevant text and visual content where the chosen pipeline supports it.
+
+For a long PDF, do not pretend that pages omitted due to a processing limit were checked. Show processing coverage and warnings.
+
+### 8.3 Advertisement image submission
+
+Upload and inspect the actual image bytes. Do not use only a filename, upload metadata, alt text or a description of the image.
+
+Run OCR or vision-based extraction on the image and identify:
+- Visible advertising copy.
+- Brand and product names.
+- Prices, promotional claims and numerical facts.
+- Calls to action and disclaimers.
+- Key visual elements and layout.
+- Logo or reference-asset comparisons where supported.
+- Obvious contrast, legibility and accessibility concerns.
+
+Compare readable image text with the selected brand's approved terminology, facts, pricing, claims and disclaimers.
+
+Compare colours, logos and layouts only against actual reference assets and known requirements. Do not claim exact colour matching, pixel-level logo verification or exhaustive accessibility compliance without an appropriate implemented measurement or comparison method.
+
+Where the OCR is uncertain, text is clipped or visual interpretation is unreliable, show “Needs verification” and explain why.
+
+Do not claim an image is fully compliant merely because the visible text did not produce any findings.
+
+### 8.4 Extraction status
+
+Every submission should display one of these meaningful states:
+- Uploaded.
+- Extracting.
+- Ready for review.
+- Partially processed.
+- Processing failed.
+
+Do not show “Review complete” when the main extraction or analysis request failed.
+
+If extraction is partial, clearly show which parts were checked and which were not.
+
+## 9. ANALYSIS ENGINE: FIND DEFECTS AND EXPLAIN THEM
+
+Run the actual submitted content against the relevant approved rules, with both deterministic checks and AI-assisted contextual analysis.
+
+Use a finding structure similar to:
+
+- Finding ID.
+- Review ID.
+- Issue category.
+- Severity.
+- Short title.
+- Exact affected text or element, if known.
+- Location or page in the submitted content, if available.
+- Explanation.
+- Applicable approved rule ID.
+- Rule version.
+- Supporting source document and excerpt.
+- Evidence from the submitted content.
+- Suggested correction.
+- Explanation of how the correction addresses the issue.
+- Confidence or uncertainty indicator.
+- Finding status.
+- Reviewer decision.
+- Reviewer comment.
+
+Support issue categories such as:
+- Terminology and spelling.
+- Approved facts and product information.
+- Pricing and numerical inconsistencies.
+- Unsupported promotional claims.
+- Forbidden or restricted claims.
+- Tone and voice.
+- Messaging and positioning.
+- Required disclaimers.
+- Visual brand consistency.
+- Accessibility concerns.
+- Outdated or conflicting information.
+- Human verification required.
+
+Distinguish these situations carefully:
+
+**Confirmed rule violation:** The content conflicts with a specific, approved rule, and the evidence supports that conclusion.
+
+**Approved-fact mismatch:** The content contradicts a known value in an approved source.
+
+**Unsupported claim:** The claim could not be substantiated using the available approved sources. Do not automatically label it false.
+
+**Style suggestion:** A possible improvement rather than a confirmed violation.
+
+**Needs human verification:** Evidence is insufficient, ambiguous, partially extracted or conflicting.
+
+A model must not invent rule IDs, fake source excerpts, fictional approval status, fabricated prices or nonexistent document references.
+
+Every rule-based finding should reference a rule that actually exists in the selected brand's database. If no applicable rule exists, the finding must say so and be classified appropriately.
+
+Use plain language. The creator must understand:
+- What is wrong.
+- Where the problem appears.
+- Which approved rule or fact is relevant.
+- Why the current content conflicts with it.
+- How the issue can be corrected.
+- Whether the result is certain or requires a human decision.
+
+## 10. SUGGEST CORRECTIONS WITHOUT DESTROYING THE CREATOR'S INTENT
+
+Suggestions must correct the identified defect while preserving the original message, audience, purpose and appropriate style.
+
+When possible, display:
+- Original wording.
+- Suggested wording.
+- Explanation.
+- Supporting approved source.
+
+The creator must be able to accept, edit or reject each suggestion.
+
+Also provide an option to create a revised draft using selected accepted changes. The revision must be saved separately from the original submitted content.
+
+Never silently overwrite the original content or original advertisement image.
+
+Do not claim to have edited or regenerated the pixels of an uploaded advertisement unless a real image-editing function was actually executed. Copy suggestions and visual-edit instructions must be labelled accurately.
+
+After changes, let the creator re-run the review against the relevant approved rule versions.
+
+## 11. HUMAN REVIEW, COMMENTS AND APPROVAL WORKFLOW
+
+Implement a real workflow with statuses appropriate to the existing product, such as:
+- Draft.
+- Submitted for review.
+- Under review.
+- Changes requested.
+- Revised.
+- Approved.
+- Rejected.
+- Needs verification.
+
+Authorised users must be able to:
+- View findings.
+- Add comments.
+- Accept, edit or reject individual suggestions.
+- Request changes.
+- Submit a revision.
+- Approve or reject the submitted content when authorised.
+- Review previous versions and decisions.
+
+Persist every meaningful decision.
+
+Enforce role permissions in the backend. A user who is not authorised must not be able to approve content merely by changing a frontend state or making a direct API request.
+
+Do not auto-publish content. Do not treat an AI recommendation as managerial approval.
+
+Keep an auditable record of who made each decision, when it happened, which version they reviewed and what changed.
+
+## 12. REVIEW HISTORY MUST SHOW REAL RECORDS
+
+Remove the fake review count and fake history entries.
+
+Build Review History from persisted submissions, findings, revisions and human decisions.
+
+Provide useful filters for:
+- Brand.
+- Submission date.
+- Creator.
+- Content type.
+- Review status.
+- Finding category.
+- Severity.
+- Approval outcome.
+
+Opening a historical review must show the original content or an authorised preview, the extracted text where relevant, the findings, the rule versions used, supporting sources, suggested changes, reviewer comments and decisions.
+
+If a source document or rule has changed since the review, preserve the historical snapshot or version reference so the previous result remains understandable.
+
+Do not recalculate old review results silently when rules change.
+
+## 13. RECURRING ISSUES AND UNCLEAR GUIDELINES
+
+Remove the fake “5 alerts” and any hardcoded recurring-issue chart or alert list.
+
+Generate insights only from actual findings and decisions belonging to the selected organisation and brand.
+
+Identify repeated issues such as:
+- The same approved rule being violated across different drafts.
+- Repeated mismatch with an approved product fact.
+- Repeated terminology mistakes.
+- Recurring unsupported claims.
+- Repeated problems associated with a particular channel.
+- Ambiguous or conflicting rules that repeatedly require human intervention.
+
+For a prototype, consider an issue recurring when the same rule or clearly matching issue occurs in at least three findings across at least two distinct drafts in a configurable seven-day window.
+
+Do not group all issues in a category into one recurring problem merely because they share a category.
+
+Show the matching evidence, affected drafts, relevant rule and time period. Treat an alert as a prompt for investigation, not proof that an individual employee is at fault.
+
+Track potentially unclear guidelines separately. Examples include repeated “needs verification” findings, conflicting approved rules or frequent reviewer overrides. Provide an actionable recommendation to the administrator to clarify or update the guideline.
+
+Do not automatically rewrite approved rules or train a model from reviewer decisions without explicit controls and a review process.
+
+## 14. DATA MODEL AND STORAGE
+
+Inspect the existing database before adding or changing tables.
+
+Implement the minimum appropriate persistent entities, adapting names to the existing architecture:
+
+- Users.
+- Organisations/workspaces.
+- Organisation memberships and roles.
+- Brands.
+- Source documents and uploaded assets.
+- Extraction jobs and processing results.
+- Rule candidates.
+- Approved rules and rule versions.
+- Content submissions.
+- Extracted content.
+- Reviews.
+- Findings.
+- Suggested corrections.
+- Review comments and decisions.
+- Draft revisions.
+- Recurring-issue aggregates or queries.
+- Audit records.
+
+Add organisation and brand ownership fields where required.
+
+Enforce foreign-key relationships and authorisation checks. Add indexes for common filtering and lookups.
+
+Use migrations or safe schema updates instead of deleting the database and recreating everything whenever a feature changes.
+
+Store structured extracted rules and findings in the database. Keep source metadata and source excerpts so users can trace results back to the original material.
+
+Store uploaded files using the project's suitable storage mechanism and apply access controls. If binary files are stored separately, save only the necessary storage reference in the database.
+
+## 15. SECURITY, PRIVACY AND RELIABILITY
+
+Brand rulebooks, product documents, pricing, internal strategies and unpublished advertisements may be confidential.
+
+Implement:
+- Server-side API-key protection.
+- File-type validation and sensible size limits.
+- Organisation-level access control.
+- Safe error messages that do not leak secrets.
+- Reasonable request and upload limits.
+- Deletion of sources and their derived records according to documented retention behaviour.
+- A clear notice explaining that uploaded material may be sent to the configured AI provider for processing.
+- Configurable model and processing settings.
+- Loading, retry and failure states.
+- Prevention of duplicate submissions caused by repeated clicks.
+- Safe handling of malicious or irrelevant instructions embedded in uploaded documents.
+
+Treat uploaded documents and submitted content as untrusted data, not as instructions that can override the application's system behaviour or permissions.
+
+Do not assume that an AI output is correct simply because it conforms to a JSON schema. Validate its references, required fields, values and business logic in the application.
+
+Never log secret keys or unnecessarily log entire confidential documents.
+
+If an external AI request fails, preserve the uploaded material and any completed extraction. Show that the contextual or visual AI analysis could not be completed. Never silently report a successful or compliant review.
+
+Do not claim that an uploaded document is private, deleted everywhere or excluded from model training unless the relevant service's actual settings and policies support that claim.
+
+## 16. USER INTERFACE AND DESIGN
+
+Preserve the current SkyNex AI visual identity and premium SaaS design.
+
+Do not redesign the entire website unnecessarily.
+
+Keep the navigation:
+1. Review Content.
+2. Brand Knowledge.
+3. Review History.
+4. Recurring Issues.
+
+Adapt the current UI so each page is driven by real records.
+
+Use genuine empty states when the organisation has no rules, reviews or recurring issues.
+
+Important UI requirements:
+- No fake counts or dummy alerts.
+- No buttons that do nothing.
+- No success indicators triggered before the backend confirms success.
+- Clear upload and extraction progress.
+- Searchable and filterable rule tables.
+- Source excerpts and links for evidence.
+- Explicit AI uncertainty and partial-processing warnings.
+- Easy switching between brands within the authorised workspace.
+- Responsive layout for desktop and mobile.
+- Clear confirmation for destructive actions.
+
+The Brand Knowledge page must be capable of presenting hundreds of individual rules through search, filtering, pagination or virtualised rendering where appropriate.
+
+## 17. REQUIRED API AND BACKEND BEHAVIOUR
+
+Follow the existing naming and routing conventions. Add or adapt backend functions for these operations as required:
+
+- Create and manage organisations and brands.
+- Upload and process brand knowledge sources.
+- View source extraction status and results.
+- Review, edit, approve and reject candidate rules.
+- Search and retrieve applicable approved rules.
+- Submit text, PDF or image for review.
+- Extract text and visual information.
+- Run deterministic and AI-assisted checks.
+- Return structured findings with evidence.
+- Accept, edit or reject suggestions.
+- Create revised content.
+- Request review and record approval decisions.
+- Retrieve review history.
+- Generate recurring-issue and unclear-guideline insights.
+- Delete a source and handle its dependent derived data appropriately.
+
+Do not create endpoints that return hardcoded example results. Frontend loading, error and success states must reflect actual backend responses.
+
+## 18. TEST THE COMPLETE WORKFLOW
+
+Create automated tests using synthetic data in a test environment only.
+
+At a minimum, test these scenarios:
+
+**Brand knowledge**
+1. A new user starts without preloaded brands or rules.
+2. A new brand can be created.
+3. A multi-page PDF uploads and is processed.
+4. A scanned or image-based PDF triggers OCR/vision extraction where supported.
+5. DOCX, text, CSV/XLSX and image imports work for the formats implemented.
+6. One document can produce many candidate rules.
+7. Every extracted rule retains its available source reference.
+8. Candidates can be edited, approved and rejected.
+9. Conflicting rules are surfaced rather than silently resolved.
+10. Approved rules become available to the actual review engine.
+
+**Review content**
+11. Text submission is checked against the selected brand's approved rules.
+12. A submitted PDF is actually extracted and analysed.
+13. An advertisement image is actually inspected.
+14. A forbidden phrase produces a finding linked to the real rule.
+15. A wrong price is compared with the brand's approved price, where such a rule exists.
+16. An unsupported claim is not automatically labelled false.
+17. A valid content example does not receive invented violations.
+18. Missing rules produce a clear limitation instead of a fabricated result.
+19. Unreadable image text or failed extraction produces an honest warning.
+20. AI/API failure does not show a successful completed review.
+
+**Workflow and history**
+21. Suggested text can be accepted, edited and rejected.
+22. Original content remains unchanged when a revised draft is created.
+23. Authorised reviewers can make decisions and unauthorised users cannot.
+24. Review history contains real persisted records.
+25. Old reviews retain their rule-version references.
+26. Recurring issues are calculated only from qualifying real findings.
+27. Organisation A cannot retrieve Organisation B's sources, rules, reviews or findings.
+28. Deleting a source follows the documented deletion policy.
+29. The application starts and works correctly with an empty database.
+30. The production interface contains no seeded demonstration data.
+
+Run the existing build, lint, type checks, migrations and automated tests where available. Fix regressions caused by the implementation.
+
+## 19. IMPLEMENTATION ORDER
+
+Work in this order, inspecting the codebase and adapting to its actual structure:
+
+Phase 1: Audit the existing code, identify mock data and integrations, and remove demo records safely.
+
+Phase 2: Make workspace/brand setup and data isolation work.
+
+Phase 3: Implement uploads, source storage, extraction and candidate-rule generation.
+
+Phase 4: Implement candidate editing, evidence display, approval and persistent rule management.
+
+Phase 5: Connect Review Content to approved-rule retrieval and actual AI analysis.
+
+Phase 6: Implement PDF and advertisement-image reviews end to end.
+
+Phase 7: Persist findings, corrections, revisions, decisions and review history.
+
+Phase 8: Implement evidence-based recurring issues and unclear-guideline insights.
+
+Phase 9: Run the acceptance tests, resolve regressions and verify deployment configuration.
+
+Prioritise a complete working end-to-end workflow over many half-implemented features.
+
+If a requested capability is not feasible with the existing environment, implement the best reliable partial version, clearly label the limitation, and do not simulate completion.
+
+## 20. DEFINITION OF DONE
+
+The project is ready for the prototype demonstration only when:
+
+- A new user does not see fictional demo brands, demo rules, fake history or fabricated counts.
+- A user can create their own brand and upload their own guideline documents.
+- The system genuinely extracts the documents' content.
+- The system produces multiple individual rule candidates from a long rulebook.
+- Candidates include available source evidence.
+- A human can review and approve the rules.
+- The approved rules are actually stored and used during content review.
+- A creator can submit real text, PDF content and advertisement images.
+- Actual extracted content is compared against the selected brand's applicable approved rules.
+- Findings explain the defect and cite the real supporting rule or fact.
+- Suggested corrections preserve the creator's original intent.
+- Human decisions, review history and recurring insights persist.
+- Confidential organisational data is correctly isolated.
+- The UI reports incomplete processing and AI failures honestly.
+- The application builds, starts and passes the available acceptance tests.
+
+## 21. FINAL IMPLEMENTATION REPORT
+
+When finished, provide a concise but specific report containing:
+
+1. Demo data removed and where it was found.
+2. Files and components changed.
+3. Actual AI provider/model configuration used.
+4. How long-document extraction and candidate-rule generation work.
+5. How approved-rule retrieval and content review work.
+6. Supported file formats and any limitations.
+7. Authentication, organisation isolation and storage behaviour.
+8. Tests executed and their real results.
+9. Environment variables/secrets the developer must configure.
+10. Anything that remains incomplete.
+
+Separate implemented features from partially implemented or unimplemented features. Never claim that a test passed unless it was actually run.
+
+**FINAL PRIORITY:** Build the real SkyNex AI brand-governance engine. The interface must allow an organisation to bring its own brand knowledge, transform it into approved rules, check real content against those rules, understand every finding, and keep human reviewers in control. Do not rely on demo data to make the product appear functional.

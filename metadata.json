@@ -1,0 +1,8 @@
+{
+  "name": "SkyNex AI",
+  "description": "Enterprise brand governance platform: verify content against approved brand guidelines, facts, and prohibited terms with explainable evidence citations and human-in-the-loop decisions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

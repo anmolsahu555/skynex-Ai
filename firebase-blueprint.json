@@ -1,0 +1,120 @@
+{
+  "entities": {
+    "UserPublicProfile": {
+      "title": "UserPublicProfile",
+      "description": "Public profile metadata for an authenticated SkyNex AI user.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID matching the document owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the user.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "roleLabel": {
+          "type": "string",
+          "description": "Display label for user role.",
+          "enum": ["Brand Compliance Manager", "Evaluator Demo Account", "Content Reviewer"],
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "isDemo": {
+          "type": "boolean",
+          "description": "Indicates if this is the restricted Evaluator Demo account."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was last updated."
+        }
+      },
+      "required": ["uid", "displayName", "roleLabel", "isDemo", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII document storing the user email address.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID matching the owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User email address.",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the record was created."
+        }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "DemoAuditLog": {
+      "title": "DemoAuditLog",
+      "description": "Isolated sandbox activity log for the Evaluator Demo account.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "UID of the demo user who triggered the sandbox event.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "action": {
+          "type": "string",
+          "description": "Demo action performed in the sandbox.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "brandId": {
+          "type": "string",
+          "description": "Target demo brand ID.",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the demo event."
+        }
+      },
+      "required": ["uid", "action", "brandId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserPublicProfile",
+      "description": "Stores non-PII public profile metadata for authenticated users."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": "UserPrivateInfo",
+      "description": "Isolated PII storage for user email address accessible strictly by owner."
+    },
+    "/demo_sandbox_logs/{logId}": {
+      "schema": "DemoAuditLog",
+      "description": "Isolated sandbox collection for Evaluator Demo sessions, separated from production user data."
+    }
+  }
+}

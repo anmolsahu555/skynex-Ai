@@ -1,0 +1,451 @@
+SkyNex AI — Product Requirements Document (PRD)
+Version: 1.0
+Stage: Inkloom AI Hackathon, Round 2 — The Build
+Product status: Proposed implementation requirements; features must not be described as working until verified in the actual application.
+Primary audience: Content creators, brand reviewers, marketing managers, brand administrators.
+Product principle: Approved brand knowledge is the source of truth; AI assists, explains and suggests, while humans retain control.
+1. Executive summary
+SkyNex AI is an AI-assisted brand-governance workspace for organisations that create content through employees, agencies, freelancers and AI tools. It reviews submitted content against approved brand guidelines, terminology, facts and claim rules before publication. It explains findings with evidence, suggests targeted corrections, records human decisions and identifies recurring issues across drafts.
+
+The Round 2 goal is an end-to-end product that a judge can open and use without a walkthrough. The product must not stop at a login screen, settings page or empty dashboard. A judge must be able to submit content, run checks, understand each finding, make a decision and see the result saved.
+The core user journey
+Approved brand knowledge → submit or upload content → extract/normalise content → deterministic checks + contextual AI review → validate findings → human decides → save revision/history → detect recurrence and alert a manager.
+Product identity
+- Product: SkyNex AI
+- Positioning: AI-assisted brand governance
+- Primary value: Review content against approved brand knowledge, explain problems, suggest corrections, and turn confirmed repeated findings into useful governance signals.
+2. Problem statement alignment
+The supplied Inkloom AI problem statement identifies the challenge of maintaining trustworthy brand identity when content is produced by multiple employees, agencies and AI tools. It calls out incorrect claims, outdated information, inconsistent language, off-brand visuals, accessibility, explainable corrections, collaboration, revision history, repeated mistakes, privacy and human control.
+
+The Round 2 build should demonstrate the essential central workflow first. The proposed MVP deliberately prioritises text and document-based review before attempting advanced visual analysis or broad publishing-platform integrations.
+3. Goals and measurable outcomes
+Product goals
+1. Let a first-time user start a review immediately.
+2. Make approved brand rules and facts inspectable and editable.
+3. Accept text through paste input and supported file upload.
+4. Detect known terminology, fact/price and prohibited-phrase conflicts with deterministic checks.
+5. Use Gemini for contextual analysis and targeted suggestions, without treating its output as authoritative evidence.
+6. Explain why every finding was produced and show the exact approved rule/source when one exists.
+7. Let a human accept, edit, reject or escalate a suggestion.
+8. Persist drafts, findings, decisions and revisions.
+9. Detect repeated, sufficiently confirmed findings across distinct drafts and surface manager alerts.
+10. Handle missing rules, conflicting rules, parser failures and AI outages honestly.
+Success criteria for Round 2
+These are acceptance tests, not claims that the product already passes them.
+- A judge can load sample data and complete a review without assistance.
+- Known terminology, price and explicitly prohibited phrase tests return expected findings.
+- Every deterministic finding references a real, active approved rule or fact.
+- AI-generated findings are schema-validated; any referenced rule ID must exist.
+- An unsupported claim is labelled unverified/needs review, not automatically declared false.
+- Accept, edit and reject actions work and are persisted.
+- The original draft remains available after corrections.
+- Repeated matching findings can trigger a manager alert at a configured threshold.
+- If Gemini is unavailable, deterministic checks still run and the app clearly marks contextual analysis incomplete.
+- The deployed judge-accessible URL opens on a useful screen and contains a working sample path.
+4. Users and roles
+Creator
+- Submits a draft or content file.
+- Reviews issues and suggested changes.
+- Accepts, edits or rejects suggestions.
+- Adds context or asks for manual verification.
+Reviewer / manager
+- Reviews findings and creator decisions.
+- Adds comments, requests changes, approves or rejects the draft.
+- Investigates recurrence alerts and records a follow-up action.
+Brand administrator
+- Creates and updates approved brand rules, facts, terminology and source references.
+- Marks rules active, inactive or needing review.
+- Maintains rule versions and handles conflicting or outdated guidance.
+Demo-mode security note
+For a frictionless judging experience, the public demonstration may provide a visible demo-role selector or a sample workspace. This is not production authentication. Do not represent a role selector as secure role-based access control. Never use real confidential company content in an unauthenticated public demo.
+5. Product information architecture
+The application should use simple, consistent navigation. The default page must be Review Content, not a blank dashboard.
+Main navigation
+1. Review Content — Primary entry point, paste/upload content, run checks and take actions.
+2. Brand Knowledge — View and manage approved rules, facts and references.
+3. Review History — Find past drafts, decisions and revisions.
+4. Manager Insights — View repeated-issue alerts, investigate patterns and record follow-up.
+5. Help & Privacy — Explain supported formats, review limitations and external AI processing.
+Do not build a separate dashboard with decorative charts unless it provides real information. A small summary at the top of Review History or Manager Insights is sufficient.
+6. Screen-by-screen requirements
+6.1 Review Content — primary screen
+Purpose: Get the user from input to useful findings with the fewest steps.
+Header
+- Title: Review Content
+- Helper text: “Check a draft against approved brand rules before publication.”
+- Visible actions: Try sample draft and Start new review.
+- If Gemini review may send content to an external service, show a concise disclosure near the AI review action and link to the privacy explanation.
+Input form
+- Brand profile selector (preselected in demo mode).
+- Content channel selector: Social post, Advertisement, Email, Website/Product page, Other.
+- Draft title (optional but recommended).
+- Paste content text area.
+- Upload content drag-and-drop file uploader with supported types and size limit displayed.
+- Check content primary button.
+- Optional toggle to run contextual AI review when the service is configured. Deterministic checks must not depend on Gemini.
+Upload behaviour
+- MVP target: pasted text, .txt, .md, text-based .pdf, and .docx extraction.
+- Image files .png, .jpg, .jpeg may be presented only if basic image review is actually implemented and tested. Otherwise display them as not yet supported rather than pretending they were checked.
+- Initial maximum file size: 10 MB, configurable.
+- Validate extension and actual file type; never execute uploaded files.
+- Extract text server-side; show the extracted text preview before review for PDFs/DOCX so the user can spot extraction errors.
+- If a file contains no extractable text, is encrypted, corrupt or unsupported, show a clear error and offer paste-text fallback.
+- Do not send an uploaded file to Gemini automatically. The user clicks Check content, sees an external-AI disclosure, and explicitly initiates review.
+- Never allow instructions contained inside a submitted document to modify approved brand rules or override the system's review instructions.
+- Default to storing extracted text, filename and metadata needed for review; do not retain original file binaries unless the implementation requires it and the retention policy is clearly explained.
+After clicking Check content
+1. Validate that there is non-empty text or a supported file with extractable text.
+2. Create a draft/review record and preserve the original content.
+3. Load active approved brand rules and facts for the selected brand.
+4. Run deterministic checks.
+5. If configured, run Gemini contextual analysis with only the relevant approved context and submitted content needed for review.
+6. Validate the AI response and all rule/source references.
+7. Merge and de-duplicate findings without hiding distinct rule violations.
+8. Save the findings and review status.
+9. Navigate or scroll to the results section.
+Show visible progress states such as Extracting content, Checking approved rules, Running contextual review and Preparing findings. A failure at one stage must be visible; it must not produce a misleading “all clear” status.
+6.2 Review Results
+Each finding should be presented as a compact, scannable row or expandable panel. Avoid a wall of AI-generated prose.
+
+Every finding should show:
+- Category and status.
+- Exact text excerpt or location that triggered the finding.
+- Short explanation in plain language.
+- Supporting approved rule/fact and source/version, when available.
+- Suggested correction only when one can be grounded in approved information.
+- Whether human verification is required.
+- Actions: Accept suggestion, Edit, Reject suggestion, Needs manual review, and optional comment.
+Finding classifications
+1. Confirmed rule conflict — conflicts with an explicit active rule.
+2. Approved-fact conflict — conflicts with an approved structured fact, e.g. price.
+3. Unsupported/unverified claim — available evidence does not substantiate it; this does not prove the claim is false.
+4. Style or tone suggestion — subjective advice, not necessarily a policy violation.
+5. Needs human verification — evidence is absent, rules conflict or meaning is ambiguous.
+Severity
+Use only simple values such as High, Medium and Low when meaningful. Severity should derive from the rule's configured severity or an explicit policy; do not rely on unsupported model confidence scores.
+Overall review status
+Use explicit outcomes:
+- Issues found
+- No issues detected by checks that ran
+- Needs human verification
+- Partial review — contextual AI unavailable
+- Extraction incomplete
+Never show “Compliant” or “Passed” when AI/contextual checks failed or when an important required check did not run.
+6.3 One-Click Change / correction application
+- Accepting a suggestion applies only that targeted correction to a new draft revision/preview.
+- Show before/after text, highlighting what changed.
+- Original content remains preserved.
+- User can edit the proposed revision or reject the suggestion.
+- No content is automatically published or sent to a social/media platform.
+- Do not offer a vague “fix all” action in the MVP, because it can create unreviewed changes.
+- After accepting or editing, re-run deterministic checks on the revised draft or clearly mark results as not yet rechecked.
+6.4 Brand Knowledge
+Purpose: Create a reliable source of truth for review.
+
+Allow the demo user to see and add rules through a form. Each rule should contain:
+- Brand ID.
+- Rule ID.
+- Rule category: preferred terminology, prohibited term/claim, fact/price, tone guidance, messaging, visual/accessibility (even if latter categories are not checked in the MVP).
+- Rule title and concise rule text.
+- Structured fields when needed (e.g. product name, currency, price, unit, effective date).
+- Approved value or required/prohibited phrase.
+- Supporting source label/URL/file reference if available.
+- Severity/priority if applicable.
+- Status: Draft, Active, Inactive, Needs review.
+- Version, created/updated time and optional notes.
+Only Active rules should be used as authoritative checks. Rule changes must create a new version or at minimum preserve the version used by historical reviews. If rules conflict, flag the conflict for an admin rather than guessing. AI-extracted candidate rules remain unapproved until a human confirms them.
+
+MVP should prioritise manual rule creation and a seeded example brand. Automated rule extraction from complex documents is optional and not allowed to silently create active rules.
+6.5 Review History
+Show saved review records with:
+- Draft title, brand and channel.
+- Review date/time.
+- Review status.
+- Number and categories of findings.
+- Latest human decision.
+Opening a record should show its original draft, revision(s), findings, rule versions used, comments and decision timestamps. Data must persist across navigation and app reruns; do not rely on Streamlit session state as the only storage.
+6.6 Manager Insights
+Keep this page simple and genuinely functional.
+- List repeated-issue alerts with category, matching rule, occurrence count, distinct draft count, time window and status.
+- Default demo threshold: 3 confirmed matching findings across at least 2 distinct drafts within 7 days; make it configurable.
+- Count deterministic findings tied to the same rule. For AI findings, require human confirmation or stable rule linkage before counting them as confirmed recurrence.
+- Deduplicate the same rule finding within one draft so one repeated phrase inside a single draft does not create false frequency.
+- Alert should indicate a pattern for investigation, not prove negligence or automatic cause.
+- Allow manager to mark Investigating, add a short note/action, and mark Follow-up recorded.
+- Seed demo examples must be clearly labelled illustrative. Never fabricate analytics from real usage if the database is empty.
+6.7 Help & Privacy
+Display:
+- Supported input formats and current limitations.
+- Short explanation of deterministic checks vs AI analysis.
+- Notice that relevant content and brand context may be sent to Gemini when AI review is enabled.
+- Guidance not to submit sensitive/confidential content in public demo mode.
+- Summary of data stored and how the demo can be reset.
+- Known limitations and human review requirements.
+7. Brand-review logic
+7.1 Deterministic rule engine
+Run predictable checks in Python before or alongside Gemini:
+- Preferred/approved product names and common invalid variants.
+- Structured facts and prices, with product/context mapping where available.
+- Explicit prohibited phrases/claims (case-insensitive and normalised whitespace).
+- Optionally required disclaimer wording if explicitly configured.
+Do not use naive global replacement where the word may appear in another context. Every finding must include the actual rule_id and matching excerpt. If no approved rule applies, do not claim the content violates that rule.
+7.2 Gemini contextual analysis
+Use the official Google GenAI Python SDK (google-genai). Make the model identifier configurable through environment/secrets rather than hard-coding it across the codebase. Use a structured response schema validated with Pydantic. Current official Gemini documentation supports JSON-schema structured outputs and Pydantic integration; verify SDK/model usage against the current official documentation during implementation.
+
+Send Gemini:
+- Submitted draft text or supported extracted content.
+- Relevant active rules/facts (only what is needed).
+- The task and permitted finding categories.
+- Instructions not to invent rules, facts, citations or source identifiers.
+- Instructions to distinguish unsupported claims from demonstrably false claims.
+- Instructions to return needs_human_review when evidence is missing or ambiguous.
+Do not ask Gemini to decide from its general knowledge whether a company-specific product fact is correct. The source of truth is the approved brand database.
+7.3 Structured finding format
+A suggested finding object should contain fields equivalent to:
+- category
+- status
+- quoted_text
+- explanation
+- rule_id (nullable only when no specific approved rule supports it)
+- source_label / source_reference (must be verified by Python)
+- suggested_replacement (nullable)
+- requires_human_review
+- severity (nullable/configured)
+The schema and exact field names may be adjusted in code, but the meaning must remain stable. Reject malformed responses, excessive findings, unknown IDs and malformed text spans. Never trust a model-supplied rule or source unless it exists in the selected brand's database.
+7.4 Merge and deduplicate
+Merge rule-engine and Gemini findings. If both identify the same rule and overlapping text span, show one finding with clear provenance (e.g. deterministic + AI context), rather than duplicate cards. Preserve genuinely distinct issues on the same excerpt, such as a product-name mismatch and a price conflict.
+7.5 Correction generation
+- Exact terminology and price corrections should come from the approved database, not from freeform AI invention.
+- For contextual corrections, ask Gemini to minimally edit the quoted passage while preserving the creator's intended message and not adding new claims.
+- If a safe replacement cannot be derived from approved facts, return no correction and request human review.
+- Re-check revised text against active deterministic rules after an accepted edit.
+8. Canonical demo brand and sample flow
+Use one fictional, clearly labelled sample brand, AeroSip, unless an existing working application already has a different canonical demo and changing it would break coherence. If an existing demo is present, inspect and preserve it or update it consistently across app, documentation and tests rather than mixing examples.
+
+Suggested illustrative rules:
+- Approved product name: AeroSip.
+- Approved price: ₹999 for the configured demo item/offer.
+- Phrase/rule requiring review: a product performance claim such as “keeps drinks cold for 48 hours” must have a supporting approved source before it can be used.
+- Optional explicit prohibited phrase: only add if deliberately configured as a demo rule and clearly labelled as illustrative.
+Example draft:
+“Discover Aero Sip for just ₹899. Keeps drinks cold for 48 hours!”
+
+Expected results:
+1. Aero Sip is flagged against approved name AeroSip.
+2. ₹899 is flagged against the approved price ₹999 for the selected item.
+3. “Keeps drinks cold for 48 hours” is marked unsupported/unverified if no supporting source exists; it must not be called false automatically.
+4. The UI suggests safe known corrections for the product name and price.
+5. The claim is sent for human verification unless an approved source/rule supports it.
+6. The user accepts or edits a correction; a new version is saved and the original remains available.
+7. Repeating the same confirmed terminology issue across separate drafts can trigger the recurrence alert.
+Provide a one-click Load sample draft button so the judge can experience the workflow without manually configuring data first.
+9. Data model
+Use a simple relational model. Suggested SQLite tables:
+brands
+- id, name, description, created_at, updated_at
+brand_rules
+- id, brand_id, rule_key, category, title, rule_text, structured_value_json, source_label, source_url, severity, status, version, created_at, updated_at
+drafts
+- id, brand_id, title, channel, source_filename, original_text, current_text, review_status, created_at, updated_at
+draft_versions
+- id, draft_id, version_number, content_text, change_summary, created_by_role, created_at
+reviews
+- id, draft_id, rule_version_snapshot or equivalent references, rule_engine_status, ai_review_status, overall_status, created_at, completed_at
+findings
+- id, review_id, draft_id, rule_id nullable, category, status, quoted_text, start_offset/end_offset if reliable, explanation, suggested_replacement, severity, provenance, confirmed_by_human, created_at
+review_decisions
+- id, finding_id, draft_id, decision (accepted/edited/rejected/escalated), final_text nullable, comment, reviewer_role, created_at
+recurrence_alerts
+- id, brand_id, rule_id or stable issue key, occurrence_count, distinct_draft_count, window_start, window_end, threshold, status, manager_note, created_at, updated_at
+Implementation may simplify the schema if needed, but must preserve stable IDs, original drafts, findings, decisions, and rule references. Use parameterized SQL, transactions for multi-table writes, uniqueness constraints where appropriate, and indexes on common filters. Never construct SQL from untrusted user text.
+10. Proposed technical architecture
+Application
+- Python application logic.
+- Streamlit UI, preferably with a clear multipage/navigation structure.
+- SQLite for local/demo persistence initially, subject to deployment persistence checks.
+- Google GenAI Python SDK (google-genai) for Gemini.
+- Pydantic for validating structured model output.
+- pypdf for basic PDF text extraction and python-docx for DOCX extraction when those upload types are implemented.
+- pytest for tests.
+Suggested project structure
+skynex-ai/
+├── app.py                    # app entry point and navigation
+├── requirements.txt
+├── README.md
+├── .env.example              # variable names only; no real secrets
+├── .gitignore
+├── config.py                 # configuration and safe defaults
+├── ui/
+│   ├── review_content.py
+│   ├── brand_knowledge.py
+│   ├── review_history.py
+│   ├── manager_insights.py
+│   └── help_privacy.py
+├── services/
+│   ├── content_extraction.py
+│   ├── rules_engine.py
+│   ├── gemini_service.py
+│   ├── finding_validation.py
+│   ├── correction_service.py
+│   ├── recurrence_service.py
+│   └── review_orchestrator.py
+├── data/
+│   ├── db.py
+│   ├── repositories.py
+│   └── seed_demo.py
+├── models/
+│   └── schemas.py             # Pydantic structures
+├── tests/
+│   ├── test_rules_engine.py
+│   ├── test_finding_validation.py
+│   ├── test_corrections.py
+│   ├── test_recurrence.py
+│   └── test_review_workflow.py
+└── docs/
+    ├── PRD.md
+    ├── ARCHITECTURE.md
+    └── TEST_PLAN.md
+If the existing repository already has a sound structure or uses a different framework, do not blindly replace it with this tree. First audit the actual project, map existing modules to these responsibilities and recommend the smallest safe set of changes. Keep UI code separate from rules, AI calls and data access wherever practical.
+End-to-end orchestration
+The UI should call one orchestration function such as review_draft(...). That function should:
+1. Validate and normalise the input.
+2. Load the selected brand's active rules.
+3. Save a draft and create a review record.
+4. Run deterministic rules.
+5. Attempt AI analysis when enabled/configured, using bounded timeouts and clear error handling.
+6. Validate all AI findings and references.
+7. Merge findings and compute overall status.
+8. Persist findings and return a typed review result.
+Keep network/API calls outside the database transaction where possible. Store state transitions deliberately. Make retrying AI analysis idempotent so duplicate findings are not created just because a user reruns a request.
+11. Reliability, privacy and security requirements
+- Store GEMINI_API_KEY in environment variables or deployment secrets. Never commit a real key.
+- Include .env, local databases containing real data, uploads and secret files in .gitignore as appropriate.
+- Show a clear AI-processing disclosure before enabling Gemini review.
+- Send only the content and relevant brand rules needed for that analysis.
+- Use fictional demo data in public deployments.
+- Do not log full content, API keys, personal information or sensitive details by default.
+- Apply upload size limits and whitelist supported formats; parse files as data only.
+- Treat uploaded content as untrusted. Ignore any text asking the model to change system instructions, reveal keys, or alter approved brand rules.
+- Catch timeouts, quota errors, invalid JSON, empty model output, missing API configuration and parser errors.
+- A Gemini failure must not erase deterministic findings.
+- Use explicit review status to reflect incomplete stages.
+- Do not store the entire prompt/reply if it is not necessary for audit/debugging.
+- Provide a visible notice that this MVP is a demo and users should not upload confidential content unless their organisation permits the processing and storage conditions.
+- Before company production use, add real authentication, role-based permissions, tenant isolation, managed persistent storage/backups, encryption where appropriate, retention/deletion controls, dependency scanning and a documented privacy review. Do not call the hackathon demo production-ready.
+12. Error and edge-case behaviour
+Scenario	Required behaviour
+Empty text	Stop and ask for content. Do not create a false “passed” review.
+Unsupported/corrupt/encrypted file	Explain what failed and provide paste-text fallback.
+PDF has no extractable text	Report extraction incomplete; do not claim it was checked.
+No brand rules configured	Ask the user to add/select rules or use the sample brand. Do not say content is compliant.
+Conflicting approved rules	Flag conflict and request admin review.
+Gemini key missing	Run deterministic checks and show contextual AI unavailable.
+Gemini timeout/quota/error	Preserve deterministic results and mark contextual review incomplete.
+Malformed AI response	Reject it, log safe diagnostic metadata, and show AI analysis incomplete.
+AI references nonexistent rule ID	Discard the reference; do not display invented evidence.
+No issue detected	Say “No issues detected by checks that ran,” not “guaranteed compliant.”
+User rejects suggestion	Keep original content; record rejection.
+User accepts suggestion	Create a new version, preserve original and re-run known rules.
+Same issue is repeated within one draft	Do not count multiple occurrences in the same draft as multiple distinct drafts for recurrence.
+User refreshes/reopens history	Persisted drafts, findings and decisions remain available.
+
+
+13. Acceptance tests
+The following scenarios must be run before declaring the core workflow complete.
+1. Wrong product name: approved AeroSip, draft includes Aero Sip → terminology finding linked to the correct rule.
+2. Wrong price: approved price ₹999, draft includes ₹899 for the same item/offer → fact conflict showing the approved value.
+3. Explicit prohibited phrase: matching configured phrase → finding points to the exact prohibition rule.
+4. Unverified performance claim: no approved supporting source → needs human verification, not “false”.
+5. Valid content: no invented violations; user sees which checks actually ran.
+6. Tone mismatch: Gemini may produce a style suggestion and short reasoning; it must not pretend the tone rule is an exact factual rule.
+7. Missing rule: no authoritative source → flag for review or report no rule available; do not invent one.
+8. Conflicting rules: report the conflict and request human resolution.
+9. Accept correction: creates revised content and preserves original version.
+10. Edit correction: saves the user's edit and decision.
+11. Reject correction: preserves original content and records rejection.
+12. Gemini unavailable: deterministic findings remain visible; overall state indicates incomplete contextual review.
+13. Malformed/untrusted AI output: it cannot create fake approved rules or source IDs.
+14. Recurrence: three confirmed matching findings over at least two distinct drafts inside the configured window create one alert.
+15. False recurrence: unrelated rule IDs or multiple occurrences in only one draft do not trigger the same alert.
+16. Persistence: navigate away and return; saved history is still present.
+17. Public entry: a new judge can load the sample, check it, decide and inspect history without developer assistance.
+18. Upload failure: invalid type or size produces a friendly error and safe fallback.
+Tests must report pass/fail based on observed output. Never invent pass results.
+14. Out of scope for the initial Round 2 core
+Unless the repository already has a working implementation and it can be maintained safely, defer:
+- Direct social-media account connections or automatic publishing.
+- Full visual identity/logo placement verification.
+- Advanced OCR/image analysis and design-file parsing.
+- Complex PDF/DOCX layout preservation; simple text extraction is enough initially.
+- Automatic ingestion of brand rules that activates them without human approval.
+- Multilingual governance beyond explicitly tested languages.
+- Production-grade SSO, tenant isolation and complex enterprise permissions.
+- Automatic model training from review history.
+- Legal certification or guaranteed compliance.
+These can be proposed as Round 3/future improvements; they must not displace the core review-to-decision workflow.
+15. Deployment and judge experience
+- The first page should provide a clear Try sample review action.
+- Seed the sample brand and rules safely on initial setup without duplicating seeds on every rerun.
+- Include installation and run instructions in README.md.
+- Include .env.example with variable names and dummy values only.
+- Use deployment secrets for the Gemini key.
+- Verify whether the chosen hosting environment provides durable database storage. SQLite is fine for local/demo use only if its persistence is guaranteed; otherwise choose a persistent managed database for the deployed demo or clearly reset seed data on startup.
+- Provide sample content and a repeatable judge scenario.
+- A judge should be able to interact without a walkthrough and without having to configure their own API key.
+- If deployed AI credentials cannot be safely provided, the UI should still demonstrate working deterministic checks and clearly indicate AI suggestions are unavailable; do not simulate them as real Gemini output.
+16. Round 2 submission checklist
+- Working project URL.
+- Public or judge-accessible source repository.
+- Updated project PDF.
+- List of genuinely completed features.
+- Technology, APIs, libraries, datasets and external services actually used.
+- Clear description of changes from the Round 1 plan.
+- Three real Round 3 improvements.
+- Evidence of testing or structured feedback where available.
+- Accurate role/contribution statements from every participant if required by the submission form. The provided instructions say only the team leader submits in Round 2; do not submit duplicates from other members.
+17. Recommended three Round 3 improvements
+Choose three substantial additions and describe them as future work until implemented:
+1. Visual governance: compare supported creative assets with approved logos/visual rules and surface explainable issues for human review.
+2. Expanded document support: more robust PDF/DOCX extraction, source locations and document review workflow.
+3. Governance and organisational insights: stronger role-based permissions, rule versioning, reviewer comments/auditability, and improved recurrence reporting.
+Do not promise all these as Round 2 functionality.
+18. Codex working protocol
+Codex should work in small, auditable steps and protect existing useful work.
+Phase 0: repository audit — no edits
+1. Inspect the full repository and current framework.
+2. Identify existing working screens, functions, dependencies, database and current deploy path.
+3. Map the actual code against this PRD.
+4. Run existing tests/lint/build if available and report the observed state.
+5. Propose the smallest safe implementation plan, with a file-by-file change list.
+6. Do not rewrite or delete project files at this phase.
+Phase 1: establish the working vertical slice
+Implement or repair this path first: load sample brand → submit/paste draft → deterministic check → evidence-linked finding → accept/edit/reject → persisted revision. Test it before moving on.
+Phase 2: AI integration
+Add Gemini with structured output, Pydantic validation, approved-source validation, timeouts, retries only where safe, and fallback behaviour. Test API errors explicitly.
+Phase 3: uploads and history
+Add supported document extraction and review history without breaking paste input. Add file limits and extraction status.
+Phase 4: recurrence and manager alerts
+Track matching confirmed findings across drafts and implement configurable thresholds. Test both alert and non-alert cases.
+Phase 5: review for submission
+Run the acceptance tests, inspect the deployed link as a fresh user, document actual limitations and update README/submission materials.
+Codex rules
+- Do not claim a feature works until its code path has been exercised.
+- Do not build a decorative empty dashboard instead of functional review.
+- Do not redesign or rewrite the whole app without evidence it is necessary.
+- Do not hard-code secrets, fake AI results, fake sources or fake test results.
+- Do not allow unsupported AI output to become approved brand knowledge.
+- Do not silently change the product name or core stack; explain any proposed change first.
+- For every implementation phase, provide: files changed, behaviour added, tests run, observed outcomes, known limitations, and exact next step.
+19. References
+Supplied primary source
+- Inkloom AI, Problem_statement.pdf, including the challenge statement, expected outcome, suggested capabilities and Round 2 submission requirements.
+Official implementation documentation
+- Google Gemini API getting started: https://ai.google.dev/gemini-api/docs/get-started
+- Gemini structured outputs: https://ai.google.dev/gemini-api/docs/structured-output
+- Gemini API key handling: https://ai.google.dev/gemini-api/docs/api-key
+- Google GenAI SDK: https://ai.google.dev/gemini-api/docs/libraries
+- Streamlit multipage apps: https://docs.streamlit.io/develop/concepts/multipage-apps/overview
+- Streamlit forms: https://docs.streamlit.io/develop/concepts/architecture/forms
+- Streamlit secrets: https://docs.streamlit.io/deploy/concepts/secrets
+Final product definition
+SkyNex AI is successful for Round 2 when a judge can submit or upload supported content, see accurate and explainable findings grounded in approved brand knowledge, review a targeted correction, make a human decision, and see that decision persist. The recurrence alert is the next layer of value: it turns saved findings into a signal managers can investigate. Everything else is secondary until that path is reliable.
