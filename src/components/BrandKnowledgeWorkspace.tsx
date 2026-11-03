@@ -41,15 +41,26 @@ import {
   ExternalLink,
   FileCheck,
   ShieldCheck,
-  Dna
+  Dna,
+  RefreshCw,
+  Landmark,
+  Calendar
 } from 'lucide-react';
 import {
   BrandProfile,
   BrandRule,
   RuleApprovalStatus,
   BrandProduct,
-  BrandProductStatus
+  BrandProductStatus,
+  GovernmentDepartment,
+  RegulatoryComplianceOverview
 } from '../types.ts';
+import {
+  INITIAL_REGULATORY_DEPARTMENTS,
+  normalizeAndEnrichGovernmentRule,
+  resolveGovernmentDepartmentLabel,
+  resolveComplianceCategoryLabel
+} from '../data/regulatoryDepartments.ts';
 
 interface BrandKnowledgeWorkspaceProps {
   activeBrand: BrandProfile;
@@ -72,10 +83,19 @@ interface BrandKnowledgeWorkspaceProps {
   setRuleSearchQuery: (q: string) => void;
   onNavigateToDna: () => void;
   onBrandUpdated?: (updatedBrand: BrandProfile) => void;
+  regulatoryDepartments?: GovernmentDepartment[];
+  onRegulatoryUpdated?: (
+    departments: GovernmentDepartment[],
+    overview?: RegulatoryComplianceOverview,
+    brand?: BrandProfile
+  ) => void;
+  onNavigateToRegulatory?: () => void;
+  initialTab?: 'rules' | 'assets' | 'sources' | 'government_rules' | 'products';
   triggerToast: (text: string, type?: 'info' | 'error' | 'success') => void;
 }
 
 const RULES_PER_PAGE = 8;
+const GOV_RULES_PER_PAGE = 10;
 
 const PRODUCT_CATEGORIES = [
   'Merchandise',
@@ -84,6 +104,18 @@ const PRODUCT_CATEGORIES = [
   'Hardware & Terminals',
   'Digital & SaaS',
   'Packaging'
+];
+
+const GOV_COMPLIANCE_CATEGORIES = [
+  'Advertising',
+  'Food Safety',
+  'Pricing & Packaging',
+  'Privacy & IT Governance',
+  'Health & Pharmaceuticals',
+  'Environmental Claims',
+  'Consumer Protection',
+  'Financial Disclosures',
+  'Endorsements & Disclosures'
 ];
 
 export default function BrandKnowledgeWorkspace({
@@ -107,10 +139,22 @@ export default function BrandKnowledgeWorkspace({
   setRuleSearchQuery,
   onNavigateToDna,
   onBrandUpdated,
+  regulatoryDepartments = INITIAL_REGULATORY_DEPARTMENTS,
+  onRegulatoryUpdated,
+  onNavigateToRegulatory,
+  initialTab,
   triggerToast
 }: BrandKnowledgeWorkspaceProps) {
-  // Primary Workspace Tabs: 'rules' | 'assets' | 'sources' | 'products'
-  const [activeMainTab, setActiveMainTab] = useState<'rules' | 'assets' | 'sources' | 'products'>('rules');
+  // Primary Workspace Tabs: 'rules' | 'assets' | 'sources' | 'government_rules' | 'products'
+  const [activeMainTab, setActiveMainTab] = useState<
+    'rules' | 'assets' | 'sources' | 'government_rules' | 'products'
+  >(initialTab || 'rules');
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveMainTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Header Menus
   const [isHeaderBrandOpen, setIsHeaderBrandOpen] = useState(false);
@@ -133,6 +177,33 @@ export default function BrandKnowledgeWorkspace({
   const [openRowMenuId, setOpenRowMenuId] = useState<string | null>(null);
   const [rulePendingDelete, setRulePendingDelete] = useState<BrandRule | null>(null);
   const [isDeletingSingleRule, setIsDeletingSingleRule] = useState<boolean>(false);
+
+  // =========================================================================
+  // GOVERNMENT RULES TAB STATE & MODALS
+  // =========================================================================
+  const [govSearchQuery, setGovSearchQuery] = useState<string>('');
+  const [govDepartmentFilter, setGovDepartmentFilter] = useState<string>('All Departments');
+  const [govStatusFilter, setGovStatusFilter] = useState<string>('All Statuses');
+  const [govCategoryFilter, setGovCategoryFilter] = useState<string>('All Categories');
+  const [govCurrentPage, setGovCurrentPage] = useState<number>(1);
+  const [isSyncingGovRules, setIsSyncingGovRules] = useState<boolean>(false);
+  const [viewingGovRule, setViewingGovRule] = useState<BrandRule | null>(null);
+  const [editingGovRule, setEditingGovRule] = useState<BrandRule | null>(null);
+  const [isSavingGovRuleEdit, setIsSavingGovRuleEdit] = useState<boolean>(false);
+
+  // Edit Government Rule Form State
+  const [govEditTitle, setGovEditTitle] = useState<string>('');
+  const [govEditStatement, setGovEditStatement] = useState<string>('');
+  const [govEditExplanation, setGovEditExplanation] = useState<string>('');
+  const [govEditDepartmentName, setGovEditDepartmentName] = useState<string>('');
+  const [govEditDeptId, setGovEditDeptId] = useState<string>('ccpa');
+  const [govEditComplianceCategory, setGovEditComplianceCategory] = useState<string>('Advertising');
+  const [govEditStatus, setGovEditStatus] = useState<RuleApprovalStatus>('Approved');
+  const [govEditSourceUrl, setGovEditSourceUrl] = useState<string>('');
+  const [govEditSourcePageTitle, setGovEditSourcePageTitle] = useState<string>('');
+  const [govEditSourceSection, setGovEditSourceSection] = useState<string>('');
+  const [govEditApprovedValue, setGovEditApprovedValue] = useState<string>('');
+  const [govEditTargetPatterns, setGovEditTargetPatterns] = useState<string>('');
 
   // =========================================================================
   // PRODUCTS TAB STATE & FORM
@@ -807,6 +878,323 @@ export default function BrandKnowledgeWorkspace({
     }
   };
 
+  // =========================================================================
+  // GOVERNMENT RULES COMPUTATIONS & HANDLERS (CONNECTED TO REGULATORY MODULE)
+  // =========================================================================
+  const allGovernmentRules = useMemo(() => {
+    const map = new Map<string, BrandRule>();
+
+    // 1. Pull all government-mandated or regulatory rules from activeBrand.rules first (preserves latest status/edits)
+    (activeBrand?.rules || []).forEach(r => {
+      const isGov =
+        Boolean(r.isGovernmentMandated) ||
+        Boolean(r.regulatoryDepartment) ||
+        /^(CCPA|FSSAI|DCA|MEITY|CDSCO|SEBI|ASCI|GOV)-/i.test(r.id) ||
+        /\.gov\.in\b|\.nic\.in\b/i.test(`${r.sourceUrl || ''} ${r.sourceRef || ''} ${r.sourcePage || ''}`);
+
+      if (isGov) {
+        const matchedDept = regulatoryDepartments.find(
+          d => d.id.toLowerCase() === String(r.regulatoryDepartment || '').toLowerCase()
+        );
+        const enriched = normalizeAndEnrichGovernmentRule(r, matchedDept);
+        map.set(enriched.id, enriched);
+      }
+    });
+
+    // 2. Merge any rules from regulatoryDepartments not yet in the map (avoids duplicates)
+    (regulatoryDepartments || []).forEach(dept => {
+      (dept.rules || []).forEach(r => {
+        const enriched = normalizeAndEnrichGovernmentRule(r, dept);
+        const duplicateByTitle = Array.from(map.values()).find(
+          ex => ex.title.toLowerCase().trim() === enriched.title.toLowerCase().trim()
+        );
+        if (!map.has(enriched.id) && !duplicateByTitle) {
+          map.set(enriched.id, enriched);
+        }
+      });
+    });
+
+    return Array.from(map.values());
+  }, [activeBrand?.rules, regulatoryDepartments]);
+
+  const govStats = useMemo(() => {
+    const total = allGovernmentRules.length;
+    const active = allGovernmentRules.filter(r => r.status === 'Approved').length;
+    const draft = allGovernmentRules.filter(r => r.status === 'Draft').length;
+    const unverified = allGovernmentRules.filter(r => r.status === 'Unverified').length;
+    return { total, active, draft, unverified };
+  }, [allGovernmentRules]);
+
+  // Department-wise Organization (Standard + Dynamically Detected Departments)
+  const departmentOrganization = useMemo(() => {
+    const standardOrder = [
+      'FSSAI – Food Safety',
+      'Ministry of Consumer Affairs (CCPA)',
+      'Legal Metrology (Consumer Affairs)',
+      'Ministry of Health (CDSCO)',
+      'Ministry of Electronics and IT (MeitY)',
+      'Ministry of Environment',
+      'SEBI – Financial & Securities',
+      'ASCI – Advertising Standards'
+    ];
+
+    const countsMap = new Map<string, number>();
+    standardOrder.forEach(dep => countsMap.set(dep, 0));
+
+    allGovernmentRules.forEach(r => {
+      const depLabel =
+        r.departmentName ||
+        resolveGovernmentDepartmentLabel(r.regulatoryDepartment as string);
+      countsMap.set(depLabel, (countsMap.get(depLabel) || 0) + 1);
+    });
+
+    return Array.from(countsMap.entries())
+      .filter(([label, count]) => count > 0 || standardOrder.slice(0, 6).includes(label))
+      .map(([departmentName, count]) => ({
+        departmentName,
+        count
+      }));
+  }, [allGovernmentRules]);
+
+  const filteredGovernmentRules = useMemo(() => {
+    const q = govSearchQuery.toLowerCase().trim();
+    return allGovernmentRules.filter(r => {
+      const deptLabel =
+        r.departmentName ||
+        resolveGovernmentDepartmentLabel(r.regulatoryDepartment as string);
+      const catLabel =
+        r.complianceCategory ||
+        resolveComplianceCategoryLabel(r, r.regulatoryDepartment as string);
+
+      // Department filter
+      const matchesDept =
+        govDepartmentFilter === 'All Departments' ||
+        deptLabel === govDepartmentFilter ||
+        (govDepartmentFilter === 'Ministry of Consumer Affairs (CCPA)' &&
+          (deptLabel.includes('Consumer Affairs') || r.regulatoryDepartment === 'ccpa')) ||
+        (govDepartmentFilter === 'Legal Metrology (Consumer Affairs)' &&
+          (deptLabel.includes('Legal Metrology') || r.regulatoryDepartment === 'dca')) ||
+        (govDepartmentFilter === 'Ministry of Health (CDSCO)' &&
+          (deptLabel.includes('Ministry of Health') || r.regulatoryDepartment === 'cdsco')) ||
+        (govDepartmentFilter === 'Ministry of Electronics and IT (MeitY)' &&
+          (deptLabel.includes('Electronics and IT') || r.regulatoryDepartment === 'meity')) ||
+        (govDepartmentFilter === 'FSSAI – Food Safety' &&
+          (deptLabel.includes('FSSAI') || r.regulatoryDepartment === 'fssai')) ||
+        (govDepartmentFilter === 'Ministry of Environment' &&
+          (deptLabel.includes('Environment') || catLabel === 'Environmental Claims'));
+
+      // Status filter
+      const matchesStatus =
+        govStatusFilter === 'All Statuses' ||
+        (govStatusFilter === 'Approved' && r.status === 'Approved') ||
+        (govStatusFilter === 'Draft' && r.status === 'Draft') ||
+        (govStatusFilter === 'Unverified' && r.status === 'Unverified');
+
+      // Compliance Category filter
+      const matchesCat =
+        govCategoryFilter === 'All Categories' || catLabel === govCategoryFilter;
+
+      // Search query (Rule ID, Rule Title, Description, Department, Category, Source)
+      const matchesSearch =
+        !q ||
+        r.id.toLowerCase().includes(q) ||
+        r.title.toLowerCase().includes(q) ||
+        r.ruleStatement.toLowerCase().includes(q) ||
+        (r.explanation || '').toLowerCase().includes(q) ||
+        deptLabel.toLowerCase().includes(q) ||
+        catLabel.toLowerCase().includes(q) ||
+        (r.sourceUrl || '').toLowerCase().includes(q) ||
+        (r.sourceDocumentName || '').toLowerCase().includes(q) ||
+        r.targetPatterns.some(p => p.toLowerCase().includes(q));
+
+      return matchesDept && matchesStatus && matchesCat && matchesSearch;
+    });
+  }, [
+    allGovernmentRules,
+    govSearchQuery,
+    govDepartmentFilter,
+    govStatusFilter,
+    govCategoryFilter
+  ]);
+
+  useEffect(() => {
+    setGovCurrentPage(1);
+  }, [govSearchQuery, govDepartmentFilter, govStatusFilter, govCategoryFilter, activeBrandId]);
+
+  const govTotalPages = Math.max(
+    1,
+    Math.ceil(filteredGovernmentRules.length / GOV_RULES_PER_PAGE)
+  );
+  const safeGovPage = Math.min(govCurrentPage, govTotalPages);
+  const paginatedGovRules = filteredGovernmentRules.slice(
+    (safeGovPage - 1) * GOV_RULES_PER_PAGE,
+    safeGovPage * GOV_RULES_PER_PAGE
+  );
+
+  const handleSyncAllGovernmentRules = async () => {
+    setIsSyncingGovRules(true);
+    try {
+      const res = await fetch('/api/regulatory/sync-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandId: activeBrand.id })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to sync government rules');
+      if (data.brand && onBrandUpdated) {
+        onBrandUpdated(data.brand);
+      }
+      if (data.departments && onRegulatoryUpdated) {
+        onRegulatoryUpdated(data.departments, data.overview, data.brand);
+      }
+      triggerToast(
+        data.message || 'Synchronized all government rules with Regulatory Compliance.',
+        'success'
+      );
+    } catch (err: any) {
+      triggerToast(`Government rules sync failed: ${err?.message}`, 'error');
+    } finally {
+      setIsSyncingGovRules(false);
+    }
+  };
+
+  const handleOpenEditGovRuleModal = (rule: BrandRule) => {
+    const deptLabel =
+      rule.departmentName ||
+      resolveGovernmentDepartmentLabel(rule.regulatoryDepartment as string);
+    const catLabel =
+      rule.complianceCategory ||
+      resolveComplianceCategoryLabel(rule, rule.regulatoryDepartment as string);
+
+    setEditingGovRule(rule);
+    setGovEditTitle(rule.title);
+    setGovEditStatement(rule.ruleStatement);
+    setGovEditExplanation(rule.explanation || '');
+    setGovEditDepartmentName(deptLabel);
+    setGovEditDeptId(String(rule.regulatoryDepartment || 'ccpa'));
+    setGovEditComplianceCategory(catLabel);
+    setGovEditStatus(rule.status);
+    setGovEditSourceUrl(rule.sourceUrl || 'https://www.india.gov.in/');
+    setGovEditSourcePageTitle(
+      rule.sourcePageTitle || rule.sourceDocumentName || rule.sourceRef || ''
+    );
+    setGovEditSourceSection(rule.sourceSection || 'Statutory Mandate');
+    setGovEditApprovedValue(rule.approvedValue || '');
+    setGovEditTargetPatterns((rule.targetPatterns || []).join(', '));
+  };
+
+  const handleSaveGovRuleEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGovRule) return;
+    if (!govEditTitle.trim() || !govEditStatement.trim()) {
+      triggerToast('Rule Title and Regulation Description are required.', 'error');
+      return;
+    }
+
+    setIsSavingGovRuleEdit(true);
+    try {
+      const res = await fetch(
+        `/api/brands/${activeBrand.id}/rules/${editingGovRule.id}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: govEditTitle.trim(),
+            ruleStatement: govEditStatement.trim(),
+            explanation: govEditExplanation.trim() || govEditStatement.trim(),
+            approvedValue:
+              govEditApprovedValue.trim() ||
+              editingGovRule.approvedValue ||
+              'Comply with statutory mandate',
+            targetPatterns: govEditTargetPatterns
+              .split(',')
+              .map(s => s.trim())
+              .filter(Boolean),
+            status: govEditStatus,
+            sourceDocumentName: govEditSourcePageTitle.trim(),
+            sourcePageTitle: govEditSourcePageTitle.trim(),
+            sourceSection: govEditSourceSection.trim(),
+            sourceUrl: govEditSourceUrl.trim(),
+            sourceRef: `${govEditSourcePageTitle.trim() || govEditDepartmentName} (${govEditSourceSection.trim() || 'Official'})`,
+            regulatoryDepartment: govEditDeptId,
+            isGovernmentMandated: true,
+            departmentName: govEditDepartmentName.trim(),
+            complianceCategory: govEditComplianceCategory
+          })
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update government rule');
+
+      if (data.brand && onBrandUpdated) {
+        onBrandUpdated(data.brand);
+      }
+      if (data.regulatoryDepartments && onRegulatoryUpdated) {
+        onRegulatoryUpdated(
+          data.regulatoryDepartments,
+          data.regulatoryOverview,
+          data.brand
+        );
+      }
+      if (viewingGovRule && viewingGovRule.id === editingGovRule.id && data.rule) {
+        setViewingGovRule(normalizeAndEnrichGovernmentRule(data.rule));
+      }
+      setEditingGovRule(null);
+      triggerToast(
+        `Updated government rule ${editingGovRule.id} (${govEditStatus}).`,
+        'success'
+      );
+    } catch (err: any) {
+      triggerToast(`Update failed: ${err?.message}`, 'error');
+    } finally {
+      setIsSavingGovRuleEdit(false);
+    }
+  };
+
+  const handleQuickGovStatusChange = async (
+    rule: BrandRule,
+    nextStatus: RuleApprovalStatus
+  ) => {
+    try {
+      const res = await fetch(`/api/brands/${activeBrand.id}/rules/${rule.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: nextStatus,
+          isGovernmentMandated: true,
+          regulatoryDepartment: rule.regulatoryDepartment,
+          departmentName: rule.departmentName,
+          complianceCategory: rule.complianceCategory,
+          sourceUrl: rule.sourceUrl,
+          sourcePageTitle: rule.sourcePageTitle
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update status');
+      if (data.brand && onBrandUpdated) onBrandUpdated(data.brand);
+      if (data.regulatoryDepartments && onRegulatoryUpdated) {
+        onRegulatoryUpdated(
+          data.regulatoryDepartments,
+          data.regulatoryOverview,
+          data.brand
+        );
+      }
+      if (viewingGovRule && viewingGovRule.id === rule.id && data.rule) {
+        setViewingGovRule(normalizeAndEnrichGovernmentRule(data.rule));
+      }
+      triggerToast(
+        `${rule.id} marked as ${nextStatus}. ${
+          nextStatus === 'Approved'
+            ? 'Active in content verification engine.'
+            : 'Excluded from active verification until approved.'
+        }`,
+        'success'
+      );
+    } catch (err: any) {
+      triggerToast(`Could not update rule status: ${err?.message}`, 'error');
+    }
+  };
+
   return (
     <div className="max-w-[1320px] mx-auto space-y-5 pb-8">
       {/* ========================================================= */}
@@ -1132,8 +1520,8 @@ export default function BrandKnowledgeWorkspace({
       )}
 
       {/* ========================================================= */}
-      {/* 4. FOUR MAIN NAVIGATION TABS                              */}
-      {/*    1. Rules | 2. Brand Assets | 3. Sources & Guidelines | 4. Products */}
+      {/* 4. FIVE MAIN NAVIGATION TABS                              */}
+      {/*    Rules | Brand Assets | Sources & Guidelines | Government Rules | Products */}
       {/* ========================================================= */}
       <div className="border-b border-slate-200 flex items-center gap-8 overflow-x-auto scrollbar-none pt-1">
         <button
@@ -1173,6 +1561,19 @@ export default function BrandKnowledgeWorkspace({
         >
           <BookOpen className={`w-4 h-4 ${activeMainTab === 'sources' ? 'text-blue-600' : 'text-slate-400'}`} />
           <span>Sources & Guidelines</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveMainTab('government_rules')}
+          className={`pb-3 px-1 flex items-center gap-2 text-xs font-semibold border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
+            activeMainTab === 'government_rules'
+              ? 'text-blue-600 border-blue-600'
+              : 'text-slate-600 hover:text-slate-900 border-transparent'
+          }`}
+        >
+          <Scale className={`w-4 h-4 ${activeMainTab === 'government_rules' ? 'text-blue-600' : 'text-slate-400'}`} />
+          <span>Government Rules</span>
         </button>
 
         <button
@@ -1881,7 +2282,459 @@ export default function BrandKnowledgeWorkspace({
       )}
 
       {/* ========================================================= */}
-      {/* TAB 4: PRODUCTS CATALOG & ADD / EDIT PRODUCT PANEL        */}
+      {/* TAB 4: GOVERNMENT RULES (CONNECTED TO REGULATORY MODULE)  */}
+      {/* ========================================================= */}
+      {activeMainTab === 'government_rules' && (
+        <div className="space-y-4">
+          {/* 1. Top Compact Statistics Summary Bar */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs p-4 flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-semibold text-slate-500">
+                  Total Government Rules
+                </div>
+                <div className="text-2xl font-bold text-slate-900 mt-0.5 tabular-nums">
+                  {govStats.total}
+                </div>
+              </div>
+              <div className="w-9 h-9 rounded-lg bg-blue-50 text-[#2563EB] flex items-center justify-center shrink-0">
+                <Scale className="w-4 h-4" />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs p-4 flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-semibold text-slate-500">
+                  Active Rules
+                </div>
+                <div className="text-2xl font-bold text-emerald-700 mt-0.5 tabular-nums">
+                  {govStats.active}
+                </div>
+              </div>
+              <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs p-4 flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-semibold text-slate-500">
+                  Draft Rules
+                </div>
+                <div className="text-2xl font-bold text-amber-600 mt-0.5 tabular-nums">
+                  {govStats.draft}
+                </div>
+              </div>
+              <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                <Clock className="w-4 h-4" />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs p-4 flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-semibold text-slate-500">
+                  Unverified Rules
+                </div>
+                <div className="text-2xl font-bold text-rose-600 mt-0.5 tabular-nums">
+                  {govStats.unverified}
+                </div>
+              </div>
+              <div className="w-9 h-9 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Main Government Rules Card: Department Organization, Filters & Structured Table */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
+            {/* Header & Regulatory Module Sync Controls */}
+            <div className="p-4 sm:px-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-bold text-slate-900">
+                    Government & Regulatory Authority Rules
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-md bg-blue-50 text-[#2563EB] border border-blue-200/70 text-[10px] font-semibold">
+                    Live Synced with Regulatory Compliance
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Automatically synchronized from government portals. Only <span className="font-semibold text-slate-700">Approved</span> rules are enforced by the verification engine.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {onNavigateToRegulatory && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToRegulatory}
+                    className="h-8 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <Landmark className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Open Regulatory Compliance</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  disabled={isSyncingGovRules}
+                  onClick={handleSyncAllGovernmentRules}
+                  className="h-8 px-3.5 rounded-lg bg-[#2563EB] hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingGovRules ? 'animate-spin' : ''}`} />
+                  <span>{isSyncingGovRules ? 'Syncing Portals...' : 'Sync Regulations'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Department-wise Quick Organization Tabs */}
+            <div className="px-4 sm:px-5 py-2.5 bg-slate-50/70 border-b border-slate-100 flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+              <button
+                type="button"
+                onClick={() => setGovDepartmentFilter('All Departments')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+                  govDepartmentFilter === 'All Departments'
+                    ? 'bg-[#2563EB] text-white shadow-2xs'
+                    : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80'
+                }`}
+              >
+                All Authorities ({allGovernmentRules.length})
+              </button>
+
+              {departmentOrganization.map(dept => (
+                <button
+                  key={dept.departmentName}
+                  type="button"
+                  onClick={() => setGovDepartmentFilter(dept.departmentName)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+                    govDepartmentFilter === dept.departmentName
+                      ? 'bg-[#2563EB] text-white shadow-2xs'
+                      : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200/80'
+                  }`}
+                >
+                  {dept.departmentName} ({dept.count})
+                </button>
+              ))}
+            </div>
+
+            {/* Search Bar, Department Filter & Status Filter */}
+            <div className="p-4 sm:px-5 border-b border-slate-100 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+              {/* Search Input */}
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
+                <input
+                  type="text"
+                  value={govSearchQuery}
+                  onChange={e => setGovSearchQuery(e.target.value)}
+                  placeholder="Search by rule title, Rule ID, keywords, or department..."
+                  className="w-full h-9 pl-9 pr-8 text-xs border border-slate-200/90 rounded-xl bg-[#F8FAFC] focus:bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                />
+                {govSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setGovSearchQuery('')}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Department, Category & Status Filter Dropdowns */}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <select
+                  value={govDepartmentFilter}
+                  onChange={e => setGovDepartmentFilter(e.target.value)}
+                  aria-label="Filter by Department"
+                  className="h-9 border border-slate-200/90 rounded-xl px-3 text-xs text-slate-800 bg-white font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                >
+                  <option value="All Departments">All Departments</option>
+                  {departmentOrganization.map(d => (
+                    <option key={d.departmentName} value={d.departmentName}>
+                      {d.departmentName}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={govCategoryFilter}
+                  onChange={e => setGovCategoryFilter(e.target.value)}
+                  aria-label="Filter by Compliance Category"
+                  className="h-9 border border-slate-200/90 rounded-xl px-3 text-xs text-slate-800 bg-white font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                >
+                  <option value="All Categories">All Categories</option>
+                  {GOV_COMPLIANCE_CATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={govStatusFilter}
+                  onChange={e => setGovStatusFilter(e.target.value)}
+                  aria-label="Filter by Status"
+                  className="h-9 border border-slate-200/90 rounded-xl px-3 text-xs text-slate-800 bg-white font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                >
+                  <option value="All Statuses">All Statuses</option>
+                  <option value="Approved">Approved (Active)</option>
+                  <option value="Draft">Draft</option>
+                  <option value="Unverified">Unverified</option>
+                </select>
+
+                {(govDepartmentFilter !== 'All Departments' ||
+                  govStatusFilter !== 'All Statuses' ||
+                  govCategoryFilter !== 'All Categories' ||
+                  govSearchQuery) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGovDepartmentFilter('All Departments');
+                      setGovStatusFilter('All Statuses');
+                      setGovCategoryFilter('All Categories');
+                      setGovSearchQuery('');
+                    }}
+                    className="h-9 px-3 rounded-xl text-xs font-semibold text-[#2563EB] hover:bg-blue-50 cursor-pointer transition-colors"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Structured Government Rules Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#F8FAFC] border-b border-slate-200/70 text-[11px] font-semibold text-slate-500">
+                    <th className="py-3 pl-5 pr-3 whitespace-nowrap">Rule ID</th>
+                    <th className="py-3 px-3 min-w-[200px]">Rule Title</th>
+                    <th className="py-3 px-3 min-w-[240px]">Description</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Department</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Category</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Status</th>
+                    <th className="py-3 px-3 whitespace-nowrap">Source</th>
+                    <th className="py-3 pl-3 pr-5 text-right whitespace-nowrap">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {paginatedGovRules.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-slate-500">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <Scale className="w-7 h-7 text-slate-300" />
+                          <div className="font-semibold text-slate-800">
+                            No government rules match the current filters
+                          </div>
+                          <p className="text-xs text-slate-400 max-w-md">
+                            Try clearing your search or click "Sync Regulations" to synchronize extracted rules from Regulatory Compliance.
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedGovRules.map(rule => {
+                      const deptLabel =
+                        rule.departmentName ||
+                        resolveGovernmentDepartmentLabel(rule.regulatoryDepartment as string);
+                      const catLabel =
+                        rule.complianceCategory ||
+                        resolveComplianceCategoryLabel(rule, rule.regulatoryDepartment as string);
+                      const srcUrl = rule.sourceUrl || 'https://www.india.gov.in/';
+                      let hostname = 'gov.in';
+                      try {
+                        hostname = new URL(srcUrl).hostname.replace(/^www\./, '');
+                      } catch {
+                        hostname = 'official-portal.gov.in';
+                      }
+
+                      return (
+                        <tr
+                          key={rule.id}
+                          onClick={() => setViewingGovRule(rule)}
+                          className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
+                        >
+                          {/* 1. Rule ID */}
+                          <td className="py-3.5 pl-5 pr-3 align-top whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 font-mono text-[11px] font-semibold border border-slate-200/70">
+                              {rule.id}
+                            </span>
+                          </td>
+
+                          {/* 2. Rule Title */}
+                          <td className="py-3.5 px-3 align-top">
+                            <div className="font-semibold text-slate-900 group-hover:text-[#2563EB] transition-colors leading-snug line-clamp-2">
+                              {rule.title}
+                            </div>
+                            {rule.sourceSection && (
+                              <div className="text-[10px] text-slate-400 mt-0.5">
+                                {rule.sourceSection}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* 3. Description */}
+                          <td className="py-3.5 px-3 align-top max-w-xs">
+                            <p className="text-slate-600 leading-relaxed line-clamp-2">
+                              {rule.ruleStatement || rule.explanation}
+                            </p>
+                          </td>
+
+                          {/* 4. Department */}
+                          <td className="py-3.5 px-3 align-top whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 text-slate-800 border border-slate-200/80 text-[11px] font-semibold">
+                              <Landmark className="w-3 h-3 text-[#2563EB] shrink-0" />
+                              <span>{deptLabel}</span>
+                            </span>
+                          </td>
+
+                          {/* 5. Category */}
+                          <td className="py-3.5 px-3 align-top whitespace-nowrap">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-blue-50/70 text-blue-700 border border-blue-200/60 text-[11px] font-semibold">
+                              {catLabel}
+                            </span>
+                          </td>
+
+                          {/* 6. Status */}
+                          <td
+                            className="py-3.5 px-3 align-top whitespace-nowrap"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <select
+                              value={rule.status}
+                              onChange={e =>
+                                handleQuickGovStatusChange(
+                                  rule,
+                                  e.target.value as RuleApprovalStatus
+                                )
+                              }
+                              aria-label={`Change status for ${rule.id}`}
+                              className={`h-7 px-2.5 rounded-md text-[11px] font-semibold border cursor-pointer focus:outline-none ${
+                                rule.status === 'Approved'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : rule.status === 'Draft'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200'
+                              }`}
+                            >
+                              <option value="Approved">Approved</option>
+                              <option value="Draft">Draft</option>
+                              <option value="Unverified">Unverified</option>
+                            </select>
+                          </td>
+
+                          {/* 7. Source (Original Government Website Link) */}
+                          <td
+                            className="py-3.5 px-3 align-top whitespace-nowrap"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <a
+                              href={srcUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[#2563EB] hover:text-blue-800 font-semibold text-[11px] hover:underline"
+                              title={`Open official government source: ${srcUrl}`}
+                            >
+                              <span>{hostname}</span>
+                              <ExternalLink className="w-3 h-3 shrink-0" />
+                            </a>
+                          </td>
+
+                          {/* 8. Actions: View, Edit, Delete */}
+                          <td
+                            className="py-3.5 pl-3 pr-5 align-top text-right whitespace-nowrap"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <div className="inline-flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setViewingGovRule(rule)}
+                                className="px-2 py-1 rounded-md text-[11px] font-semibold text-slate-600 hover:text-[#2563EB] hover:bg-blue-50 transition-colors cursor-pointer"
+                                title="View full regulation details"
+                              >
+                                View
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditGovRuleModal(rule)}
+                                className="px-2 py-1 rounded-md text-[11px] font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+                                title="Edit government rule"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setRulePendingDelete(rule)}
+                                className="px-2 py-1 rounded-md text-[11px] font-semibold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                title="Delete rule"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Table Footer & Pagination */}
+            {filteredGovernmentRules.length > 0 && (
+              <div className="px-5 py-3 bg-[#F8FAFC] border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
+                <div>
+                  Showing{' '}
+                  <span className="font-semibold text-slate-800">
+                    {(safeGovPage - 1) * GOV_RULES_PER_PAGE + 1}
+                  </span>{' '}
+                  to{' '}
+                  <span className="font-semibold text-slate-800">
+                    {Math.min(
+                      safeGovPage * GOV_RULES_PER_PAGE,
+                      filteredGovernmentRules.length
+                    )}
+                  </span>{' '}
+                  of{' '}
+                  <span className="font-semibold text-slate-800">
+                    {filteredGovernmentRules.length}
+                  </span>{' '}
+                  government rules
+                </div>
+
+                {govTotalPages > 1 && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={safeGovPage <= 1}
+                      onClick={() => setGovCurrentPage(p => Math.max(1, p - 1))}
+                      className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="px-2 text-xs font-semibold text-slate-700">
+                      Page {safeGovPage} of {govTotalPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={safeGovPage >= govTotalPages}
+                      onClick={() =>
+                        setGovCurrentPage(p => Math.min(govTotalPages, p + 1))
+                      }
+                      className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* TAB 5: PRODUCTS CATALOG & ADD / EDIT PRODUCT PANEL        */}
       {/* ========================================================= */}
       {activeMainTab === 'products' && (
         <div className="flex flex-col lg:flex-row items-start gap-5">
@@ -2855,6 +3708,430 @@ export default function BrandKnowledgeWorkspace({
                 {isDeletingSingleRule ? 'Deleting...' : 'Delete Rule'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* GOVERNMENT RULE DETAILS MODAL                             */}
+      {/* ========================================================= */}
+      {viewingGovRule && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setViewingGovRule(null)}
+        >
+          <div
+            className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-start justify-between gap-4 bg-[#F8FAFC]">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-md bg-slate-900 text-white font-mono text-[11px] font-semibold">
+                    {viewingGovRule.id}
+                  </span>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold border ${
+                      viewingGovRule.status === 'Approved'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : viewingGovRule.status === 'Draft'
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : 'bg-rose-50 text-rose-700 border-rose-200'
+                    }`}
+                  >
+                    {viewingGovRule.status}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-md bg-blue-50 text-[#2563EB] border border-blue-200/70 text-[11px] font-semibold">
+                    {viewingGovRule.complianceCategory ||
+                      resolveComplianceCategoryLabel(
+                        viewingGovRule,
+                        viewingGovRule.regulatoryDepartment as string
+                      )}
+                  </span>
+                </div>
+                <h3 className="text-base font-bold text-slate-900 leading-snug pt-0.5">
+                  {viewingGovRule.title}
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setViewingGovRule(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
+              {/* Full Extracted Regulation */}
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+                <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                  Full Extracted Regulation
+                </div>
+                <p className="text-slate-900 font-medium leading-relaxed text-xs">
+                  {viewingGovRule.ruleStatement}
+                </p>
+                {viewingGovRule.explanation &&
+                  viewingGovRule.explanation !== viewingGovRule.ruleStatement && (
+                    <p className="text-slate-600 leading-relaxed pt-1 border-t border-slate-200/60">
+                      {viewingGovRule.explanation}
+                    </p>
+                  )}
+              </div>
+
+              {/* Structured Metadata Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl border border-slate-200/80 bg-white">
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase">
+                    Department Name
+                  </div>
+                  <div className="text-xs font-bold text-slate-900 mt-0.5">
+                    {viewingGovRule.departmentName ||
+                      resolveGovernmentDepartmentLabel(
+                        viewingGovRule.regulatoryDepartment as string
+                      )}
+                  </div>
+                  {viewingGovRule.nodalMinistry && (
+                    <div className="text-[11px] text-slate-500 mt-0.5">
+                      {viewingGovRule.nodalMinistry}
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-3 rounded-xl border border-slate-200/80 bg-white">
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase">
+                    Associated Compliance Category
+                  </div>
+                  <div className="text-xs font-bold text-slate-900 mt-0.5">
+                    {viewingGovRule.complianceCategory ||
+                      resolveComplianceCategoryLabel(
+                        viewingGovRule,
+                        viewingGovRule.regulatoryDepartment as string
+                      )}
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    Governance Type: {viewingGovRule.category}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl border border-slate-200/80 bg-white">
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase">
+                    Source Page Title
+                  </div>
+                  <div className="text-xs font-semibold text-slate-800 mt-0.5">
+                    {viewingGovRule.sourcePageTitle ||
+                      viewingGovRule.sourceDocumentName ||
+                      viewingGovRule.sourceRef}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl border border-slate-200/80 bg-white">
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase">
+                    Relevant Section
+                  </div>
+                  <div className="text-xs font-semibold text-slate-800 mt-0.5">
+                    {viewingGovRule.sourceSection || 'Statutory Mandate'}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl border border-slate-200/80 bg-white sm:col-span-2">
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase">
+                    Original Source URL
+                  </div>
+                  <div className="mt-1">
+                    <a
+                      href={viewingGovRule.sourceUrl || 'https://www.india.gov.in/'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-[#2563EB] hover:text-blue-800 font-semibold hover:underline break-all"
+                    >
+                      <span>{viewingGovRule.sourceUrl || 'https://www.india.gov.in/'}</span>
+                      <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                    </a>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl border border-slate-200/80 bg-white flex items-center gap-2.5">
+                  <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                  <div>
+                    <div className="text-[10px] font-semibold text-slate-400 uppercase">
+                      Extraction Date
+                    </div>
+                    <div className="text-xs font-semibold text-slate-800 mt-0.5">
+                      {viewingGovRule.extractedAt || viewingGovRule.updatedAt || '2026-10-20'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl border border-slate-200/80 bg-white flex items-center gap-2.5">
+                  <Clock className="w-4 h-4 text-slate-400 shrink-0" />
+                  <div>
+                    <div className="text-[10px] font-semibold text-slate-400 uppercase">
+                      Last Updated Date
+                    </div>
+                    <div className="text-xs font-semibold text-slate-800 mt-0.5">
+                      {viewingGovRule.updatedAt || '2026-10-24'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Approved Standard & Violation Triggers */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl bg-emerald-50/50 border border-emerald-200/70">
+                  <div className="text-[10px] font-bold text-emerald-800 uppercase">
+                    Mandatory Compliant Standard
+                  </div>
+                  <div className="text-xs text-slate-800 mt-1 leading-relaxed">
+                    {viewingGovRule.approvedValue}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-rose-50/50 border border-rose-200/70">
+                  <div className="text-[10px] font-bold text-rose-800 uppercase">
+                    Monitored Violation Triggers
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {(viewingGovRule.targetPatterns || []).map((pat, i) => (
+                      <span
+                        key={i}
+                        className="px-2 py-0.5 rounded-md bg-white border border-rose-200 text-rose-700 text-[11px] font-medium"
+                      >
+                        {pat}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3.5 bg-[#F8FAFC] border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="text-[11px] text-slate-500">
+                {viewingGovRule.status === 'Approved'
+                  ? 'Active: Enforced by the content verification engine.'
+                  : 'Inactive: Only Approved rules are enforced during content verification.'}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ruleToEdit = viewingGovRule;
+                    setViewingGovRule(null);
+                    handleOpenEditGovRuleModal(ruleToEdit);
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer transition-colors"
+                >
+                  Edit Rule
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingGovRule(null)}
+                  className="px-4 py-1.5 rounded-lg bg-[#2563EB] hover:bg-blue-700 text-white font-semibold cursor-pointer transition-colors"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* EDIT GOVERNMENT RULE MODAL                                */}
+      {/* ========================================================= */}
+      {editingGovRule && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setEditingGovRule(null)}
+        >
+          <div
+            className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-[#F8FAFC]">
+              <div>
+                <span className="text-[11px] font-mono font-semibold text-[#2563EB]">
+                  {editingGovRule.id}
+                </span>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Edit Government Regulation
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingGovRule(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleSaveGovRuleEdit}
+              className="p-6 space-y-3.5 max-h-[78vh] overflow-y-auto text-xs"
+            >
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Rule Title *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={govEditTitle}
+                  onChange={e => setGovEditTitle(e.target.value)}
+                  className="w-full h-9 px-3 border border-slate-200 rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Department / Authority
+                  </label>
+                  <input
+                    type="text"
+                    value={govEditDepartmentName}
+                    onChange={e => setGovEditDepartmentName(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Category
+                  </label>
+                  <select
+                    value={govEditComplianceCategory}
+                    onChange={e => setGovEditComplianceCategory(e.target.value)}
+                    className="w-full h-9 px-2.5 border border-slate-200 rounded-xl bg-white text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {GOV_COMPLIANCE_CATEGORIES.map(cat => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={govEditStatus}
+                    onChange={e =>
+                      setGovEditStatus(e.target.value as RuleApprovalStatus)
+                    }
+                    className="w-full h-9 px-2.5 border border-slate-200 rounded-xl bg-white text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="Approved">Approved (Active)</option>
+                    <option value="Draft">Draft</option>
+                    <option value="Unverified">Unverified</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Full Extracted Regulation / Description *
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={govEditStatement}
+                  onChange={e => setGovEditStatement(e.target.value)}
+                  className="w-full p-3 border border-slate-200 rounded-xl bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Source Page Title
+                  </label>
+                  <input
+                    type="text"
+                    value={govEditSourcePageTitle}
+                    onChange={e => setGovEditSourcePageTitle(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-xl bg-white text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Relevant Section
+                  </label>
+                  <input
+                    type="text"
+                    value={govEditSourceSection}
+                    onChange={e => setGovEditSourceSection(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-xl bg-white text-slate-900"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Original Source URL
+                </label>
+                <input
+                  type="url"
+                  value={govEditSourceUrl}
+                  onChange={e => setGovEditSourceUrl(e.target.value)}
+                  className="w-full h-9 px-3 border border-slate-200 rounded-xl bg-white text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Compliant Standard / Approved Requirement
+                </label>
+                <input
+                  type="text"
+                  value={govEditApprovedValue}
+                  onChange={e => setGovEditApprovedValue(e.target.value)}
+                  className="w-full h-9 px-3 border border-slate-200 rounded-xl bg-white text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Violation Trigger Keywords (comma-separated)
+                </label>
+                <input
+                  type="text"
+                  value={govEditTargetPatterns}
+                  onChange={e => setGovEditTargetPatterns(e.target.value)}
+                  className="w-full h-9 px-3 border border-slate-200 rounded-xl bg-white text-slate-900"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingGovRule(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingGovRuleEdit}
+                  className="px-4 py-2 rounded-xl bg-[#2563EB] hover:bg-blue-700 disabled:opacity-60 text-white font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  {isSavingGovRuleEdit ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Save className="w-3.5 h-3.5" />
+                  )}
+                  <span>Save Changes</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

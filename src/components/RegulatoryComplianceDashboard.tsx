@@ -45,6 +45,7 @@ interface RegulatoryComplianceDashboardProps {
   onToggleDepartmentStatus?: (deptId: GovernmentDepartmentId) => Promise<void>;
   onImportRuleToBrand?: (ruleId: string, deptId: GovernmentDepartmentId) => Promise<void>;
   onMarkUpdateRead?: (updateId: string) => Promise<void>;
+  onNavigateToGovernmentRules?: () => void;
   triggerToast: (text: string, type?: 'info' | 'error' | 'success') => void;
 }
 
@@ -142,6 +143,7 @@ export default function RegulatoryComplianceDashboard({
   onToggleDepartmentStatus,
   onImportRuleToBrand,
   onMarkUpdateRead,
+  onNavigateToGovernmentRules,
   triggerToast
 }: RegulatoryComplianceDashboardProps) {
   // Search and Filter State
@@ -368,6 +370,18 @@ export default function RegulatoryComplianceDashboard({
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+          {onNavigateToGovernmentRules && (
+            <button
+              type="button"
+              onClick={onNavigateToGovernmentRules}
+              className="px-3.5 py-2 text-xs font-semibold rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200/80 text-blue-700 shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Open Government Rules tab inside Brand Knowledge"
+            >
+              <Scale className="w-3.5 h-3.5 text-blue-600" />
+              <span>Government Rules in Brand Knowledge</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          )}
           <button
             type="button"
             onClick={handleGlobalSync}

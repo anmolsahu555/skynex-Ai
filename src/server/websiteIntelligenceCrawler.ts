@@ -1,6 +1,6 @@
 import net from 'net';
 import { GoogleGenAI, Type } from '@google/genai';
-import {
+import type {
   BrandProfile,
   BrandDnaProfile,
   BrandDnaColor,
@@ -782,6 +782,38 @@ function extractDomainSpecificOfficialRules(
         approvedValue: 'Official contest rules published with explicit disclaimer that YouTube is not a sponsor',
         severity: 'warning',
         mappedRuleCategory: 'Legal & Compliance'
+      },
+      {
+        idSuffix: 'YT-THUMBNAIL-07',
+        ruleCategory: 'Content Policies',
+        category: 'website_policies',
+        subCategory: 'Custom Thumbnails & Misleading Metadata Policy',
+        title: 'Prohibition on Misleading Thumbnails, Exaggerated Promises & Deceptive Visuals',
+        ruleDescription: 'Custom thumbnails, text overlays, badges, and visual graphics must accurately reflect the actual video content. Thumbnails that trick viewers into believing the video delivers guaranteed outcomes, fabricated results, doctored screenshots, or sensationalized promises not supported by the video violate YouTube policy.',
+        originalExtractedText: 'Do not post thumbnails, titles, or descriptions that trick users into believing the content is something it is not. Thumbnails containing misleading visual representations, fabricated results, or sensationalized claims that are unsubstantiated by the video are prohibited.',
+        sectionHeading: 'Custom Thumbnails & Misleading Metadata Policy',
+        sourcePageTitle: 'YouTube Custom Thumbnail & Metadata Policies',
+        sourceUrl: 'https://support.google.com/youtube/answer/9229980',
+        targetPatterns: ['misleading thumbnail', '100% working trick', 'overnight results', 'secret hack'],
+        approvedValue: 'Truthful thumbnail visuals and headline overlays substantiated by the video content',
+        severity: 'critical',
+        mappedRuleCategory: 'Messaging & Claims'
+      },
+      {
+        idSuffix: 'YT-ACHIEVEMENT-08',
+        ruleCategory: 'Claims & Endorsement Restrictions',
+        category: 'brand_communication',
+        subCategory: 'Impersonation, Fake Achievements & Fabricated Metrics',
+        title: 'Prohibition on Fake Achievements, Fabricated Analytics & Unauthorized Verification Badges',
+        ruleDescription: 'Creatives and thumbnails must not display fabricated revenue/subscriber dashboards, fake Creator Awards (Play Buttons), spoofed verification checkmarks, or unverified achievement claims designed to deceive viewers.',
+        originalExtractedText: 'Content that misleads viewers through manipulated metrics, fabricated achievement badges, doctored earnings or subscriber counters, or unauthorized verification symbols violates YouTube Deceptive Practices and Impersonation policies.',
+        sectionHeading: 'Deceptive Practices, Fake Engagement & Impersonation',
+        sourcePageTitle: 'YouTube Spam, Deceptive Practices & Scams Policy',
+        sourceUrl: 'https://support.google.com/youtube/answer/2801973',
+        targetPatterns: ['fake verification badge', 'doctored analytics', 'fabricated earnings screenshot'],
+        approvedValue: 'Verifiable, authentic creator milestones without manipulated counters or spoofed badges',
+        severity: 'critical',
+        mappedRuleCategory: 'Prohibited Claim'
       }
     );
   } else if (key === 'nike') {

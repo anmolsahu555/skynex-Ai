@@ -2,7 +2,7 @@ import assert from 'assert';
 import {
   mapItemToWebsiteRuleCategory
 } from '../src/server/websiteIntelligenceCrawler.ts';
-import {
+import type {
   WebsiteRuleCategory,
   ContentVerificationFinding,
   ContentVerificationReport,

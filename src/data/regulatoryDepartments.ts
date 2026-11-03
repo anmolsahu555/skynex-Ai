@@ -1,4 +1,4 @@
-import {
+import type {
   GovernmentDepartment,
   GovernmentDepartmentId,
   RegulatoryUpdate,
@@ -825,6 +825,117 @@ export const INITIAL_REGULATORY_DEPARTMENTS: GovernmentDepartment[] = [
   }
 ];
 
+export function resolveGovernmentDepartmentLabel(
+  deptId?: string,
+  dept?: GovernmentDepartment,
+  fallbackName?: string
+): string {
+  const id = (deptId || dept?.id || '').toLowerCase().trim();
+  if (id === 'fssai') return 'FSSAI – Food Safety';
+  if (id === 'ccpa') return 'Ministry of Consumer Affairs (CCPA)';
+  if (id === 'dca' || id === 'legal_metrology') return 'Legal Metrology (Consumer Affairs)';
+  if (id === 'meity') return 'Ministry of Electronics and IT (MeitY)';
+  if (id === 'cdsco' || id === 'mohfw') return 'Ministry of Health (CDSCO)';
+  if (id === 'moefcc' || id === 'environment') return 'Ministry of Environment';
+  if (id === 'sebi') return 'SEBI – Financial & Securities';
+  if (id === 'asci') return 'ASCI – Advertising Standards';
+  if (fallbackName && fallbackName.trim()) return fallbackName.trim();
+  if (dept?.fullName) return `${dept.code} – ${dept.fullName}`;
+  return id ? id.toUpperCase() : 'Regulatory Authority';
+}
+
+export function resolveComplianceCategoryLabel(rule: BrandRule, deptId?: string): string {
+  if (rule.complianceCategory && rule.complianceCategory.trim()) {
+    return rule.complianceCategory.trim();
+  }
+  const text = `${rule.title} ${rule.ruleStatement} ${rule.explanation || ''} ${rule.sourceDocumentName || ''}`.toLowerCase();
+  const id = (deptId || rule.regulatoryDepartment || '').toLowerCase();
+
+  if (text.includes('greenwash') || text.includes('environment') || text.includes('eco-friendly') || text.includes('carbon') || id === 'moefcc') {
+    return 'Environmental Claims';
+  }
+  if (id === 'fssai' || text.includes('fssai') || text.includes('food') || text.includes('nutrition') || text.includes('allergen') || text.includes('edible')) {
+    return 'Food Safety';
+  }
+  if (text.includes('mrp') || text.includes('price') || text.includes('pricing') || text.includes('net quantity') || text.includes('metrology') || rule.category === 'Pricing & Facts') {
+    return 'Pricing & Packaging';
+  }
+  if (id === 'meity' || text.includes('privacy') || text.includes('dpdp') || text.includes('personal data') || text.includes('consent') || text.includes('deepfake') || text.includes('intermediary')) {
+    return 'Privacy & IT Governance';
+  }
+  if (id === 'cdsco' || text.includes('drug') || text.includes('medical') || text.includes('therapeutic') || text.includes('magic remedies') || text.includes('clinical')) {
+    return 'Health & Pharmaceuticals';
+  }
+  if (id === 'sebi' || text.includes('sebi') || text.includes('mutual fund') || text.includes('securities') || text.includes('market risk') || text.includes('investment')) {
+    return 'Financial Disclosures';
+  }
+  if (text.includes('endorse') || text.includes('influencer') || text.includes('celebrity') || text.includes('paid partnership')) {
+    return 'Endorsements & Disclosures';
+  }
+  if (text.includes('dark pattern') || text.includes('urgency') || text.includes('basket sneaking')) {
+    return 'Consumer Protection';
+  }
+  return 'Advertising';
+}
+
+export function normalizeAndEnrichGovernmentRule(
+  rule: BrandRule,
+  dept?: GovernmentDepartment
+): BrandRule {
+  const deptId = (rule.regulatoryDepartment || dept?.id || 'ccpa') as string;
+  const matchedDept =
+    dept ||
+    INITIAL_REGULATORY_DEPARTMENTS.find(d => d.id.toLowerCase() === deptId.toLowerCase());
+
+  const departmentName =
+    rule.departmentName ||
+    resolveGovernmentDepartmentLabel(deptId, matchedDept, rule.departmentName);
+
+  const nodalMinistry =
+    rule.nodalMinistry ||
+    matchedDept?.nodalMinistry ||
+    (deptId === 'moefcc'
+      ? 'Ministry of Environment, Forest and Climate Change'
+      : 'Government of India Regulatory Authority');
+
+  const complianceCategory = resolveComplianceCategoryLabel(rule, deptId);
+
+  const sourceUrl =
+    rule.sourceUrl ||
+    (rule.sourcePage && /^https?:\/\//i.test(rule.sourcePage) ? rule.sourcePage : undefined) ||
+    matchedDept?.officialWebsite ||
+    'https://www.india.gov.in/';
+
+  const sourcePageTitle =
+    rule.sourcePageTitle ||
+    rule.sourceDocumentName ||
+    matchedDept?.actName ||
+    rule.sourceRef ||
+    'Official Government Gazette / Regulatory Portal';
+
+  const extractedAt = rule.extractedAt || rule.updatedAt || '2026-10-20';
+
+  return {
+    ...rule,
+    regulatoryDepartment: deptId,
+    isGovernmentMandated: true,
+    departmentName,
+    nodalMinistry,
+    complianceCategory,
+    sourceUrl,
+    sourcePageTitle,
+    sourceDocumentName: rule.sourceDocumentName || sourcePageTitle,
+    sourceSection: rule.sourceSection || 'Statutory Mandate',
+    extractedAt,
+    updatedAt: rule.updatedAt || extractedAt
+  };
+}
+
+// Enrich initial department rules in place so all fields are populated on startup
+INITIAL_REGULATORY_DEPARTMENTS.forEach(dept => {
+  dept.rules = dept.rules.map(r => normalizeAndEnrichGovernmentRule(r, dept));
+});
+
 export function computeRegulatoryOverview(
   departments: GovernmentDepartment[],
   brandRules: BrandRule[]
@@ -833,10 +944,13 @@ export function computeRegulatoryOverview(
   const connectedSourcesCount = departments.filter(d => d.monitoringStatus === 'active').length;
 
   // Active compliance rules: count all approved rules in both departments and active brand rules that have regulatoryDepartment or isGovernmentMandated
-  const deptRules = departments.flatMap(d => d.rules);
-  const allRelevantRules = [...deptRules, ...brandRules.filter(r => r.isGovernmentMandated || r.regulatoryDepartment)];
+  const deptRules = departments.flatMap(d => d.rules.map(r => normalizeAndEnrichGovernmentRule(r, d)));
+  const govBrandRules = brandRules
+    .filter(r => r.isGovernmentMandated || Boolean(r.regulatoryDepartment))
+    .map(r => normalizeAndEnrichGovernmentRule(r));
+  const allRelevantRules = [... govBrandRules, ...deptRules];
   
-  // Deduplicate by ID
+  // Deduplicate by ID (preferring brandRules entry if edited)
   const uniqueRulesMap = new Map<string, BrandRule>();
   allRelevantRules.forEach(r => {
     if (!uniqueRulesMap.has(r.id)) {
@@ -861,3 +975,4 @@ export function computeRegulatoryOverview(
     departments
   };
 }
+

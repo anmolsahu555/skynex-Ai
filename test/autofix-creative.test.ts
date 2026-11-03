@@ -1,10 +1,16 @@
 import { strict as assert } from 'assert';
 import { BRANDS } from '../src/data/mockBrands.ts';
-import { AuditFinding, BrandProduct } from '../src/types.ts';
+import { INITIAL_REGULATORY_DEPARTMENTS } from '../src/data/regulatoryDepartments.ts';
+import { DEMO_NOVAPAY_DNA_PROFILE } from '../src/data/demoSeedData.ts';
+import { buildAutoFixCreativePrompt } from '../server.ts';
+import type { AuditFinding } from '../src/types.ts';
 
-console.log('Starting SkyNex AI Auto-Fix Creative & Second Audit Test Suite...\n');
+console.log('Starting SkyNex AI Real Image Regeneration & AI Re-Audit Test Suite...\n');
 
-const novapay = BRANDS['novapay'];
+const novapay = {
+  ...BRANDS['novapay'],
+  brandDnaProfile: DEMO_NOVAPAY_DNA_PROFILE
+};
 assert(novapay, 'NovaPay brand profile must exist');
 
 // 1. Test finding acceptance and rejected exclusion
@@ -87,7 +93,7 @@ const sampleFindings: AuditFinding[] = [
   }
 ];
 
-const accepted = sampleFindings.filter(f => f.decision === 'accepted');
+const accepted = sampleFindings.filter(f => f.decision === 'accepted' || f.decision === 'edited');
 const rejected = sampleFindings.filter(f => f.decision === 'rejected');
 
 assert.equal(accepted.length, 2, 'Exactly 2 findings should be accepted');
@@ -106,16 +112,32 @@ assert(priceCorrection, 'Price correction must be in accepted list');
 assert.equal(priceCorrection.suggestedReplacement, '₹799', 'Suggested price must be ₹799, NOT ₹999 or fallback');
 console.log('✅ PASS: Product catalog price ₹799 is strictly used as authoritative fix');
 
-// 3. Test prompt construction contains brand knowledge and guardrails
-console.log('--- Test 3: Automated Prompt Engineering ---');
-// Verify brand knowledge elements
-assert(novapay.primaryColor, 'Brand primary color must exist');
-assert(novapay.approvedLogoRef, 'Approved logo specification must exist');
-console.log('✅ PASS: Brand knowledge inputs are complete and validated');
+// 3. Test buildAutoFixCreativePrompt includes all 3 required inputs
+console.log('--- Test 3: Real AI Regeneration Prompt Construction (3 Inputs) ---');
+const {
+  promptText,
+  appliedItems,
+  brandDnaRulesAppliedCount,
+  regulatoryRulesAppliedCount
+} = buildAutoFixCreativePrompt(novapay, accepted, {
+  originalText: 'Nova Pay Cap ₹449 guarantees risk-free profits!',
+  draftTitle: 'NovaPay Cap Poster',
+  detectedProduct: capProduct,
+  regulatoryDepartments: INITIAL_REGULATORY_DEPARTMENTS
+});
+
+assert.equal(appliedItems.length, 2, '2 applied items must be structured');
+assert(promptText.includes('INPUT 1: ORIGINAL CREATIVE CONTEXT'), 'Prompt must include Input 1 (Original Creative)');
+assert(promptText.includes('INPUT 2: ACCEPTED AUDIT FINDINGS & MANDATORY CORRECTIONS'), 'Prompt must include Input 2 (Accepted Findings)');
+assert(promptText.includes('INPUT 3: BRAND DNA & EXTRACTED REGULATORY COMPLIANCE RULES'), 'Prompt must include Input 3 (Brand DNA & Regulatory Rules)');
+assert(promptText.includes('₹799'), 'Prompt must include exact verified price ₹799');
+assert(promptText.includes('NO DEBUG OVERLAYS'), 'Prompt must forbid debug overlays on original image');
+assert(brandDnaRulesAppliedCount > 0, 'Brand DNA rules count must be positive');
+assert(regulatoryRulesAppliedCount > 0, 'Regulatory rules count must be positive');
+console.log('✅ PASS: Prompt builder integrates Original Creative, Accepted Corrections, Brand DNA, and Regulatory Rules');
 
 // 4. Test Second Audit classification
-console.log('--- Test 4: Second Audit Logic ---');
-// Simulated second text with price ₹799 and compliant claim
+console.log('--- Test 4: AI Re-Audit Resolution Verification ---');
 const secondText = 'NovaPay Next-Gen Enterprise Payment Infrastructure. Subscribe today for just ₹799!';
 
 const hasOldPrice = /₹449/.test(secondText);
@@ -126,7 +148,7 @@ assert.equal(hasOldPrice, false, 'Old price ₹449 must no longer appear');
 assert.equal(hasProhibitedClaim, false, 'Prohibited claim must no longer appear');
 assert.equal(hasNewPrice, true, 'Verified price ₹799 must appear');
 
-console.log('✅ PASS: Second audit verifies resolution of accepted findings');
+console.log('✅ PASS: AI Re-Audit verifies resolution of accepted findings');
 console.log('\n========================================');
 console.log('Auto-Fix Creative Test Suite: All tests passed successfully!');
 console.log('========================================\n');

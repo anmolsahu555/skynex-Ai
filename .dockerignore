@@ -1,0 +1,15 @@
+# Docker build ignore file
+.git
+.gitignore
+node_modules
+.aistudio
+.tempmediaStorage
+.skynex-persistent-store.json
+*.traineddata
+*.log
+.DS_Store
+.env*
+!.env.example
+test
+tests
+docs

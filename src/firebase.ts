@@ -103,12 +103,43 @@ export interface SkyNexAuthSession {
   email: string;
   displayName: string;
   roleLabel: string;
+  roleKey?: 'workspace_admin' | 'reviewer_manager' | 'content_creator';
   isDemo: boolean;
   authProvider: 'firebase_demo' | 'firebase_google' | 'firebase_email';
   authenticatedAt: string;
 }
 
 const SESSION_STORAGE_KEY = 'skynex_auth_session_v1';
+
+export const RBAC_DEMO_ACCOUNTS = {
+  workspace_admin: {
+    uid: 'rbac_admin_aditi_sharma',
+    email: 'admin@skynex.ai',
+    displayName: 'Aditi Sharma',
+    roleLabel: 'Workspace Admin',
+    roleKey: 'workspace_admin' as const,
+    department: 'Governance & Standards',
+    location: 'Bengaluru HQ'
+  },
+  reviewer_manager: {
+    uid: 'rbac_reviewer_rohan_verma',
+    email: 'reviewer@skynex.ai',
+    displayName: 'Rohan Verma',
+    roleLabel: 'Reviewer & Manager',
+    roleKey: 'reviewer_manager' as const,
+    department: 'Risk & Editorial Review',
+    location: 'Mumbai Hub'
+  },
+  content_creator: {
+    uid: 'rbac_creator_ananya_iyer',
+    email: 'creator@skynex.ai',
+    displayName: 'Ananya Iyer',
+    roleLabel: 'Content Creator',
+    roleKey: 'content_creator' as const,
+    department: 'Creative Studio & Growth',
+    location: 'Delhi NCR'
+  }
+} as const;
 
 export function getSavedAuthSession(): SkyNexAuthSession | null {
   try {
@@ -142,15 +173,14 @@ export function saveAuthSession(session: SkyNexAuthSession | null) {
 export async function syncUserProfileToFirestore(user: User, isDemo: boolean): Promise<void> {
   if (!user || !user.uid) return;
   const userPath = `users/${user.uid}`;
-  const privatePath = `users/${user.uid}/private/info`;
 
   try {
     const existingDoc = await getDoc(doc(db, 'users', user.uid));
     const safeDisplayName = (
       user.displayName ||
-      (isDemo ? DEMO_CREDENTIALS.displayName : user.email?.split('@')[0] || 'SkyNex User')
+      (isDemo ? 'Aditi Sharma' : user.email?.split('@')[0] || 'SkyNex User')
     ).slice(0, 100);
-    const safeRoleLabel = isDemo ? 'Evaluator Demo Account' : 'Brand Compliance Manager';
+    const safeRoleLabel = isDemo ? 'Workspace Admin' : 'Workspace Admin';
 
     if (!existingDoc.exists()) {
       await setDoc(doc(db, 'users', user.uid), {
@@ -208,9 +238,13 @@ export async function recordDemoSandboxActivity(action: string, brandId: string)
 
 /**
  * Authenticates the dedicated Evaluator Demo user via Firebase Auth + Backend Demo Session
+ * Supports selecting any of the 3 RBAC prototype roles (Workspace Admin, Reviewer & Manager, Content Creator)
  */
-export async function loginWithDemoAccount(): Promise<SkyNexAuthSession> {
+export async function loginWithDemoAccount(
+  selectedRoleKey: 'workspace_admin' | 'reviewer_manager' | 'content_creator' = 'workspace_admin'
+): Promise<SkyNexAuthSession> {
   let firebaseUser: User | null = null;
+  const targetRbac = RBAC_DEMO_ACCOUNTS[selectedRoleKey] || RBAC_DEMO_ACCOUNTS.workspace_admin;
 
   try {
     // 1. Attempt sign-in with the dedicated demo user in Firebase Authentication
@@ -235,7 +269,7 @@ export async function loginWithDemoAccount(): Promise<SkyNexAuthSession> {
           DEMO_CREDENTIALS.password
         );
         await updateProfile(created.user, {
-          displayName: DEMO_CREDENTIALS.displayName
+          displayName: targetRbac.displayName
         });
         firebaseUser = created.user;
       } catch {
@@ -246,7 +280,7 @@ export async function loginWithDemoAccount(): Promise<SkyNexAuthSession> {
 
   if (firebaseUser) {
     await syncUserProfileToFirestore(firebaseUser, true);
-    await recordDemoSandboxActivity('Evaluator Demo Login', 'novapay');
+    await recordDemoSandboxActivity(`RBAC Demo Login (${targetRbac.roleLabel})`, 'novapay');
   }
 
   // 3. Also register/verify Demo Session with the backend sandbox
@@ -257,7 +291,9 @@ export async function loginWithDemoAccount(): Promise<SkyNexAuthSession> {
       body: JSON.stringify({
         email: DEMO_CREDENTIALS.email,
         password: DEMO_CREDENTIALS.password,
-        firebaseUid: firebaseUser?.uid || DEMO_CREDENTIALS.uid
+        rbacEmail: targetRbac.email,
+        rbacRole: targetRbac.roleKey,
+        firebaseUid: firebaseUser?.uid || targetRbac.uid
       })
     });
   } catch {
@@ -265,10 +301,11 @@ export async function loginWithDemoAccount(): Promise<SkyNexAuthSession> {
   }
 
   const session: SkyNexAuthSession = {
-    uid: firebaseUser?.uid || DEMO_CREDENTIALS.uid,
-    email: DEMO_CREDENTIALS.email,
-    displayName: DEMO_CREDENTIALS.displayName,
-    roleLabel: DEMO_CREDENTIALS.roleLabel,
+    uid: firebaseUser?.uid || targetRbac.uid,
+    email: targetRbac.email,
+    displayName: targetRbac.displayName,
+    roleLabel: targetRbac.roleLabel,
+    roleKey: targetRbac.roleKey,
     isDemo: true,
     authProvider: 'firebase_demo',
     authenticatedAt: new Date().toISOString()
@@ -279,7 +316,7 @@ export async function loginWithDemoAccount(): Promise<SkyNexAuthSession> {
 }
 
 /**
- * Authenticates with Email & Password (supports both Demo Credentials and standard accounts)
+ * Authenticates with Email & Password (supports both Demo Credentials, RBAC Demo Accounts, and standard accounts)
  */
 export async function loginWithEmailCredentials(
   emailInput: string,
@@ -290,12 +327,23 @@ export async function loginWithEmailCredentials(
   const cleanEmail = emailInput.trim().toLowerCase();
   const cleanPass = passwordInput.trim();
 
-  // Check if user entered the Evaluator Demo credentials
+  // Check if user entered one of the 3 RBAC Demo emails or the Evaluator Demo email
   if (
-    cleanEmail === DEMO_CREDENTIALS.email.toLowerCase() &&
-    (cleanPass === DEMO_CREDENTIALS.password || cleanPass === 'SkyNexDemo#2026!')
+    cleanPass === DEMO_CREDENTIALS.password ||
+    cleanPass === 'SkyNexDemo#2026!' ||
+    cleanEmail === 'admin@skynex.ai' ||
+    cleanEmail === 'reviewer@skynex.ai' ||
+    cleanEmail === 'creator@skynex.ai'
   ) {
-    return loginWithDemoAccount();
+    if (cleanEmail === 'reviewer@skynex.ai') {
+      return loginWithDemoAccount('reviewer_manager');
+    }
+    if (cleanEmail === 'creator@skynex.ai') {
+      return loginWithDemoAccount('content_creator');
+    }
+    if (cleanEmail === 'admin@skynex.ai' || cleanEmail === DEMO_CREDENTIALS.email.toLowerCase()) {
+      return loginWithDemoAccount('workspace_admin');
+    }
   }
 
   let firebaseUser: User;
@@ -324,8 +372,9 @@ export async function loginWithEmailCredentials(
       displayNameInput ||
       firebaseUser.displayName ||
       cleanEmail.split('@')[0] ||
-      'SkyNex User',
-    roleLabel: 'Brand Compliance Manager',
+      'Aditi Sharma',
+    roleLabel: 'Workspace Admin',
+    roleKey: 'workspace_admin',
     isDemo: false,
     authProvider: 'firebase_email',
     authenticatedAt: new Date().toISOString()

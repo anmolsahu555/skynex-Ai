@@ -87,12 +87,15 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  // One-Click "Login as Demo" button
-  const handleDemoLogin = async () => {
+  // One-Click "Login as Demo" button (supports selecting any of the 3 RBAC roles)
+  const [selectedRbacRole, setSelectedRbacRole] = useState<'workspace_admin' | 'reviewer_manager' | 'content_creator'>('workspace_admin');
+
+  const handleDemoLogin = async (roleKeyOverride?: 'workspace_admin' | 'reviewer_manager' | 'content_creator') => {
     setErrorMsg(null);
     setIsLoggingInDemo(true);
+    const targetRole = roleKeyOverride || selectedRbacRole;
     try {
-      const session = await loginWithDemoAccount();
+      const session = await loginWithDemoAccount(targetRole);
       onLoginSuccess(session);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Demo login encountered an issue. Please try again.');
@@ -491,11 +494,85 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   </div>
                 </div>
 
+                {/* 3 Official RBAC Prototype Roles Quick-Selector */}
+                <div className="pt-1">
+                  <div className="text-[11px] font-extrabold uppercase tracking-wider text-[#4A5A75] mb-2">
+                    Select Active Prototype Role (3 Official RBAC Roles — Switchable Anytime in Top-Right Profile)
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {[
+                      {
+                        key: 'workspace_admin' as const,
+                        name: 'Aditi Sharma',
+                        role: 'Workspace Admin',
+                        email: 'admin@skynex.ai',
+                        dept: 'Governance & Standards · Bengaluru HQ',
+                        badge: 'Full Access'
+                      },
+                      {
+                        key: 'reviewer_manager' as const,
+                        name: 'Rohan Verma',
+                        role: 'Reviewer & Manager',
+                        email: 'reviewer@skynex.ai',
+                        dept: 'Risk & Editorial Review · Mumbai Hub',
+                        badge: 'Review & Approve'
+                      },
+                      {
+                        key: 'content_creator' as const,
+                        name: 'Ananya Iyer',
+                        role: 'Content Creator',
+                        email: 'creator@skynex.ai',
+                        dept: 'Creative Studio & Growth · Delhi NCR',
+                        badge: 'Create & Submit'
+                      }
+                    ].map(acct => {
+                      const isActive = selectedRbacRole === acct.key;
+                      return (
+                        <button
+                          key={acct.key}
+                          type="button"
+                          onClick={() => {
+                            setSelectedRbacRole(acct.key);
+                            setEmail(acct.email);
+                            setPassword(DEMO_CREDENTIALS.password);
+                          }}
+                          className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                            isActive
+                              ? 'bg-white border-[#0055FF] ring-2 ring-[#0055FF]/15 shadow-xs'
+                              : 'bg-white/80 hover:bg-white border-[#DCE6F5]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="text-xs font-extrabold text-[#0B1528] truncate">
+                              {acct.name}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                                isActive
+                                  ? 'bg-[#0055FF] text-white'
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              {acct.role}
+                            </span>
+                          </div>
+                          <div className="text-[11px] font-mono text-[#0055FF] truncate mt-0.5">
+                            {acct.email}
+                          </div>
+                          <div className="text-[10px] text-[#5A6B87] truncate mt-0.5">
+                            {acct.dept}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Action Buttons Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 pt-1">
                   <button
                     type="button"
-                    onClick={handleDemoLogin}
+                    onClick={() => handleDemoLogin()}
                     disabled={isLoggingInDemo || isSubmittingForm}
                     data-testid="login-as-demo-btn"
                     className="sm:col-span-7 h-12 px-6 rounded-xl bg-[#0055FF] hover:bg-[#0046D5] active:bg-[#003BB5] text-white font-bold text-[16px] shadow-md shadow-blue-600/20 flex items-center justify-center gap-2.5 cursor-pointer transition-all disabled:opacity-60"
@@ -841,7 +918,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 {/* Quick 1-Click Demo Button inside Right Form too */}
                 <button
                   type="button"
-                  onClick={handleDemoLogin}
+                  onClick={() => handleDemoLogin()}
                   disabled={isLoggingInDemo || isSubmittingForm}
                   className="w-full h-11 rounded-xl bg-[#EBF3FF] hover:bg-[#DCE9FF] border border-[#CFE2FF] text-[#0055FF] font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
                 >

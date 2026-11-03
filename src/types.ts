@@ -1,9 +1,35 @@
 export type BrandId = 'novapay' | 'aerosip' | 'skynex' | string;
 
-export type UserRole = 'creator' | 'brand_manager' | 'legal_counsel' | 'executive';
+export type UserRole =
+  | 'workspace_admin'
+  | 'reviewer_manager'
+  | 'content_creator'
+  | 'creator'
+  | 'brand_manager'
+  | 'legal_counsel'
+  | 'executive';
 
 export interface RolePermissions {
+  // Core 3-Role RBAC Capabilities
+  canAccessAllModules: boolean;
+  canUploadContent: boolean;
   canSubmitContent: boolean;
+  canRunAiAudits: boolean;
+  canViewAuditFindings: boolean;
+  canAcceptRejectFindings: boolean;
+  canGenerateCreatives: boolean;
+  canApproveCreatives: boolean;
+  canRequestChangesFromCreator: boolean;
+  canSubmitForManagerApproval: boolean;
+  canManageBrandDna: boolean;
+  canManageProductCatalog: boolean;
+  canManageRegulatoryRules: boolean;
+  canViewAllAuditHistory: boolean;
+  canInviteRemoveUsers: boolean;
+  canAssignUserRoles: boolean;
+  canManageWorkspaceSettings: boolean;
+  canViewAllUserActivities: boolean;
+  // Backward-compatible permission flags
   canApplyFixes: boolean;
   canEditDraft: boolean;
   canApproveWaiver: boolean;
@@ -17,10 +43,11 @@ export interface RolePermissions {
 export interface UserProfile {
   id: string;
   name: string;
-  role: UserRole;
-  roleLabel: string;
+  role: 'workspace_admin' | 'reviewer_manager' | 'content_creator';
+  roleLabel: 'Workspace Admin' | 'Reviewer & Manager' | 'Content Creator';
   title: string;
   department: string;
+  location: string;
   email: string;
   initials: string;
   avatarColor: string;
@@ -30,6 +57,7 @@ export interface UserProfile {
   permissions: RolePermissions;
   description: string;
   responsibilities: string[];
+  restrictions: string[];
 }
 
 export type RuleCategory =
@@ -82,8 +110,10 @@ export type ReviewStatusOutcome =
 
 export type ContentApprovalStatus =
   | 'pending_review'
+  | 'submitted_for_approval'
   | 'approved_for_publication'
   | 'changes_requested'
+  | 'rejected'
   | 'escalated_for_verification';
 
 export type DecisionStatus = 'pending' | 'accepted' | 'edited' | 'rejected' | 'verification_requested';
@@ -161,8 +191,14 @@ export interface BrandRule {
     effectiveDate?: string;
     conditions?: string;
   };
-  regulatoryDepartment?: GovernmentDepartmentId;
+  regulatoryDepartment?: GovernmentDepartmentId | string;
   isGovernmentMandated?: boolean;
+  departmentName?: string;
+  nodalMinistry?: string;
+  complianceCategory?: string;
+  sourceUrl?: string;
+  sourcePageTitle?: string;
+  extractedAt?: string;
 }
 
 export type CompanyTypeOption =
@@ -761,13 +797,20 @@ export type ContentVerificationStatus =
   | 'Compliant'
   | 'Potential Violation'
   | 'Missing Information'
-  | 'Requires Verification';
+  | 'Requires Verification'
+  | 'COMPLIANT'
+  | 'NON-COMPLIANT'
+  | 'NEEDS REVIEW';
+
+export type ComplianceVerdictStatus = 'COMPLIANT' | 'NON-COMPLIANT' | 'NEEDS REVIEW';
 
 export interface ContentVerificationFinding {
   id: string;
   status: ContentVerificationStatus;
   detectedContent: string;
+  detectedElement?: string;
   relevantRuleTitle: string;
+  exactExtractedRule?: string;
   relevantRuleCategory: WebsiteRuleCategory | string;
   originalWebsiteText: string;
   sourceUrl: string;
@@ -775,8 +818,12 @@ export interface ContentVerificationFinding {
   sourceWebsite?: string;
   sectionHeading?: string;
   explanation: string;
+  imageEvidence?: string;
+  visualRelationshipAnalysis?: string;
+  semanticIntentAnalysis?: string;
+  contextualVerificationNote?: string;
   suggestedCorrection: string;
-  severity: 'critical' | 'warning' | 'info';
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'warning' | 'info';
 }
 
 export interface ContentVerificationReport {
@@ -786,6 +833,7 @@ export interface ContentVerificationReport {
   contentFileName?: string;
   contentType: 'image' | 'text' | 'document';
   overallStatus: ContentVerificationStatus;
+  complianceStatus?: ComplianceVerdictStatus;
   totalRulesChecked: number;
   rulesMatched: number;
   potentialViolationsCount: number;
@@ -793,6 +841,9 @@ export interface ContentVerificationReport {
   requiresVerificationCount: number;
   findings: ContentVerificationFinding[];
   extractedTextSnippet?: string;
+  visualAnalysisSummary?: string;
+  semanticAnalysisSummary?: string;
+  contextualVerificationSummary?: string;
   aiUsed: boolean;
   legalDisclaimer: string;
 }
@@ -1104,11 +1155,13 @@ export interface AutoFixCreativeResult {
   rejectedFindingsCount: number;
   pendingFindingsCount: number;
   secondAudit: SecondAuditComparison;
-  generationEngine: 'gemini-3.1-flash-lite-image' | 'gemini-nano-banana-2.1' | 'composite-renderer';
+  generationEngine: 'gemini-3.1-flash-lite-image' | 'gemini-nano-banana-2.1' | string;
   status: 'generated' | 'approved' | 'changes_requested';
   generatedAt: string;
   approvedAt?: string;
   approvedBy?: string;
+  brandDnaRulesAppliedCount?: number;
+  regulatoryRulesAppliedCount?: number;
 }
 
 export type GovernmentDepartmentId =
@@ -1167,3 +1220,64 @@ export interface RegulatoryComplianceOverview {
   lastGlobalSyncAt: string;
   departments?: GovernmentDepartment[];
 }
+
+// ============================================================================
+// WORKSPACE RBAC, TEAM MANAGEMENT & ACTIVITY LOG TYPES
+// ============================================================================
+
+export type CanonicalRoleKey = 'workspace_admin' | 'reviewer_manager' | 'content_creator';
+
+export interface WorkspaceMember {
+  id: string;
+  name: string;
+  email: string;
+  role: CanonicalRoleKey;
+  roleLabel: 'Workspace Admin' | 'Reviewer & Manager' | 'Content Creator';
+  department: string;
+  location: string;
+  initials: string;
+  avatarColor: string;
+  status: 'Active' | 'Invited';
+  joinedAt: string;
+  lastActiveAt: string;
+  isDemoAccount?: boolean;
+}
+
+export interface WorkspaceGovernanceSettings {
+  workspaceName: string;
+  organizationDomain: string;
+  requireManagerApprovalForCreatives: boolean;
+  autoRunSecondAuditOnRegeneration: boolean;
+  enforceStatutoryGovernmentRules: boolean;
+  restrictRuleEditingToWorkspaceAdmin: boolean;
+  restrictCatalogToWorkspaceAdmin: boolean;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export interface WorkspaceActivityEntry {
+  id: string;
+  timestamp: string;
+  actorName: string;
+  actorEmail: string;
+  actorRole: 'Workspace Admin' | 'Reviewer & Manager' | 'Content Creator' | string;
+  actionType:
+    | 'role_switched'
+    | 'content_uploaded'
+    | 'audit_executed'
+    | 'finding_decision'
+    | 'creative_generated'
+    | 'creative_approved'
+    | 'changes_requested'
+    | 'submitted_for_approval'
+    | 'rule_updated'
+    | 'brand_dna_updated'
+    | 'user_invited'
+    | 'user_role_changed'
+    | 'user_removed'
+    | 'settings_updated';
+  summary: string;
+  targetBrand?: string;
+  reportId?: string;
+}
+

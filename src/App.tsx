@@ -57,15 +57,25 @@ import {
   Landmark,
   LogOut
 } from 'lucide-react';
-import { USER_PROFILES, DEFAULT_USER_PROFILE } from './data/userProfiles.ts';
-import LoginPage from './components/LoginPage.tsx';
 import {
-  SkyNexAuthSession,
+  USER_PROFILES,
+  DEFAULT_USER_PROFILE,
+  getUserProfileByEmailOrRole,
+  INITIAL_WORKSPACE_MEMBERS,
+  INITIAL_WORKSPACE_SETTINGS,
+  INITIAL_WORKSPACE_ACTIVITIES
+} from './data/userProfiles.ts';
+import LoginPage from './components/LoginPage.tsx';
+import ProfileRoleDropdown from './components/ProfileRoleDropdown.tsx';
+import WorkspaceAdminModal from './components/WorkspaceAdminModal.tsx';
+import {
+  type SkyNexAuthSession,
   getSavedAuthSession,
+  saveAuthSession,
   signOutSkyNex,
   DEMO_CREDENTIALS
 } from './firebase.ts';
-import {
+import type {
   BrandId,
   BrandProfile,
   BrandRule,
@@ -78,6 +88,10 @@ import {
   RecurringPattern,
   RecurrenceThresholdConfig,
   UserProfile,
+  CanonicalRoleKey,
+  WorkspaceMember,
+  WorkspaceGovernanceSettings,
+  WorkspaceActivityEntry,
   SampleScenario,
   SampleAdImage,
   ApprovedBrandColor,
@@ -110,6 +124,7 @@ import {
 
 const ACTIVE_REPORT_STORAGE_KEY = 'skynex_active_report_id_v1';
 const ACTIVE_BRAND_STORAGE_KEY = 'skynex_active_brand_id_v1';
+const ACTIVE_RBAC_ROLE_STORAGE_KEY = 'skynex_active_rbac_role_v1';
 const SIDEBAR_EXPANDED_WIDTH_STORAGE_KEY = 'skynex_sidebar_expanded_width_v1';
 const SIDEBAR_MIN_WIDTH = 72;
 const SIDEBAR_MAX_WIDTH = 320;
@@ -121,10 +136,28 @@ export default function App() {
   // Firebase Auth & Evaluator Demo Account Session State
   const [authSession, setAuthSession] = useState<SkyNexAuthSession | null>(() => getSavedAuthSession());
 
-  // User Persona State
-  const [currentUser, setCurrentUser] = useState<UserProfile>(DEFAULT_USER_PROFILE);
+  // 3-Role RBAC User Persona State (Aditi Sharma, Rohan Verma, Ananya Iyer)
+  const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
+    const savedRole = localStorage.getItem(ACTIVE_RBAC_ROLE_STORAGE_KEY);
+    if (savedRole) {
+      return getUserProfileByEmailOrRole(savedRole);
+    }
+    const savedAuth = getSavedAuthSession();
+    if (savedAuth?.roleKey) {
+      return getUserProfileByEmailOrRole(savedAuth.roleKey);
+    }
+    if (savedAuth?.email) {
+      return getUserProfileByEmailOrRole(savedAuth.email);
+    }
+    return DEFAULT_USER_PROFILE;
+  });
   const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isWorkspaceAdminModalOpen, setIsWorkspaceAdminModalOpen] = useState(false);
+  const [workspaceAdminInitialTab, setWorkspaceAdminInitialTab] = useState<'members' | 'permissions' | 'settings' | 'activity'>('members');
+  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>(INITIAL_WORKSPACE_MEMBERS);
+  const [workspaceSettings, setWorkspaceSettings] = useState<WorkspaceGovernanceSettings>(INITIAL_WORKSPACE_SETTINGS);
+  const [workspaceActivities, setWorkspaceActivities] = useState<WorkspaceActivityEntry[]>(INITIAL_WORKSPACE_ACTIVITIES);
+  const [creatorHistoryFilter, setCreatorHistoryFilter] = useState<'mine' | 'all'>('all');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
@@ -209,6 +242,7 @@ export default function App() {
 
   // Navigation: 'review' | 'knowledge' | 'regulatory' | 'dna' | 'history' | 'recurring'
   const [currentView, setCurrentView] = useState<'review' | 'knowledge' | 'regulatory' | 'dna' | 'history' | 'recurring'>('review');
+  const [brandKnowledgeInitialTab, setBrandKnowledgeInitialTab] = useState<'rules' | 'assets' | 'sources' | 'government_rules' | 'products' | undefined>(undefined);
   const [toastMessage, setToastMessage] = useState<{ text: string; type?: 'info' | 'error' | 'success' } | null>(null);
 
   // Persistent Server State
@@ -443,6 +477,15 @@ export default function App() {
         setRecurrenceConfig(data.recurrenceConfig);
         setThresholdForm(data.recurrenceConfig);
       }
+      if (Array.isArray(data.workspaceMembers)) {
+        setWorkspaceMembers(data.workspaceMembers);
+      }
+      if (data.workspaceSettings) {
+        setWorkspaceSettings(data.workspaceSettings);
+      }
+      if (Array.isArray(data.workspaceActivities)) {
+        setWorkspaceActivities(data.workspaceActivities);
+      }
 
       if (useDemo && historyList.length > 0) {
         // In Demo Mode, prepopulate the active audit report so evaluators immediately see findings & suggestions
@@ -482,23 +525,197 @@ export default function App() {
     fetchAppState(authSession?.isDemo);
   }, [authSession?.uid, authSession?.isDemo]);
 
-  const handleLoginSuccess = async (session: SkyNexAuthSession) => {
-    setAuthSession(session);
-    await fetchAppState(session.isDemo);
-    if (session.isDemo) {
+  // Record an RBAC activity entry in local state & backend
+  const recordRbacActivity = async (
+    actionType: WorkspaceActivityEntry['actionType'],
+    summary: string,
+    reportId?: string
+  ) => {
+    const optimisticEntry: WorkspaceActivityEntry = {
+      id: `ACT-${Date.now()}`,
+      actorName: currentUser.name,
+      actorEmail: currentUser.email,
+      actorRole: currentUser.roleLabel,
+      actionType,
+      summary,
+      reportId,
+      targetBrand: activeBrand?.name || 'NovaPay',
+      timestamp: new Date().toISOString()
+    };
+    setWorkspaceActivities(prev => [optimisticEntry, ...prev.slice(0, 99)]);
+    try {
+      const res = await fetch('/api/rbac/activities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(optimisticEntry)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.workspaceActivities)) {
+          setWorkspaceActivities(data.workspaceActivities);
+        }
+      }
+    } catch {
+      // Keep optimistic entry if offline
+    }
+  };
+
+  // Switch active prototype role among the 3 canonical RBAC accounts
+  const handleSwitchRole = (profile: UserProfile) => {
+    setCurrentUser(profile);
+    localStorage.setItem(ACTIVE_RBAC_ROLE_STORAGE_KEY, profile.role);
+    setCreatorHistoryFilter(profile.role === 'content_creator' ? 'mine' : 'all');
+    if (authSession) {
+      const updatedSession: SkyNexAuthSession = {
+        ...authSession,
+        email: profile.email,
+        displayName: profile.name,
+        roleLabel: profile.roleLabel,
+        roleKey: profile.role
+      };
+      setAuthSession(updatedSession);
+      saveAuthSession(updatedSession);
+    }
+    triggerToast(
+      `Active Prototype Account switched to ${profile.name} (${profile.roleLabel} · ${profile.email})`,
+      'info'
+    );
+  };
+
+  // Enforce RBAC permission check with clear user feedback
+  const requireRbacPermission = (
+    allowed: boolean,
+    actionDescription: string,
+    requiredRoleText = 'Workspace Admin (Aditi Sharma)'
+  ): boolean => {
+    if (allowed) return true;
+    triggerToast(
+      `RBAC Permission Restricted: ${currentUser.name} (${currentUser.roleLabel}) cannot ${actionDescription}. Switch to ${requiredRoleText} in the top-right profile menu.`,
+      'error'
+    );
+    return false;
+  };
+
+  // Workspace Admin Modal Handlers (Invite, Role Change, Remove, Settings)
+  const handleInviteWorkspaceMember = async (newMemberData: {
+    name: string;
+    email: string;
+    role: CanonicalRoleKey;
+    department: string;
+    location: string;
+  }) => {
+    if (!requireRbacPermission(currentUser.permissions.canInviteRemoveUsers, 'invite workspace users')) return;
+    try {
+      const res = await fetch('/api/rbac/members/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...newMemberData,
+          actorRole: currentUser.role,
+          actorName: currentUser.name,
+          actorEmail: currentUser.email
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to invite user');
+      if (Array.isArray(data.workspaceMembers)) setWorkspaceMembers(data.workspaceMembers);
+      if (Array.isArray(data.workspaceActivities)) setWorkspaceActivities(data.workspaceActivities);
       triggerToast(
-        `Logged in as Evaluator Demo (${DEMO_CREDENTIALS.email}). Prepopulated Brand DNA, Website Rules, Audit History & Findings loaded.`,
+        `Invited ${data.member.name} (${data.member.email}) as ${data.member.roleLabel}.`,
         'success'
       );
-    } else {
-      triggerToast(`Signed in as ${session.displayName} (${session.email}).`, 'success');
+    } catch (err: any) {
+      triggerToast(err?.message || 'Failed to invite user', 'error');
     }
+  };
+
+  const handleChangeMemberRole = async (memberId: string, newRole: CanonicalRoleKey) => {
+    if (!requireRbacPermission(currentUser.permissions.canAssignUserRoles, 'assign or change user roles')) return;
+    try {
+      const res = await fetch(`/api/rbac/members/${memberId}/role`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          newRole,
+          actorRole: currentUser.role,
+          actorName: currentUser.name,
+          actorEmail: currentUser.email
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update role');
+      if (Array.isArray(data.workspaceMembers)) setWorkspaceMembers(data.workspaceMembers);
+      if (Array.isArray(data.workspaceActivities)) setWorkspaceActivities(data.workspaceActivities);
+      triggerToast(
+        `Updated role for ${data.member.name} to ${data.member.roleLabel}.`,
+        'success'
+      );
+    } catch (err: any) {
+      triggerToast(err?.message || 'Failed to change user role', 'error');
+    }
+  };
+
+  const handleRemoveWorkspaceMember = async (memberId: string) => {
+    if (!requireRbacPermission(currentUser.permissions.canInviteRemoveUsers, 'remove workspace users')) return;
+    try {
+      const res = await fetch(`/api/rbac/members/${memberId}?actorRole=${currentUser.role}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actorRole: currentUser.role,
+          actorName: currentUser.name,
+          actorEmail: currentUser.email
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to remove user');
+      if (Array.isArray(data.workspaceMembers)) setWorkspaceMembers(data.workspaceMembers);
+      if (Array.isArray(data.workspaceActivities)) setWorkspaceActivities(data.workspaceActivities);
+      triggerToast('Removed user from workspace.', 'info');
+    } catch (err: any) {
+      triggerToast(err?.message || 'Failed to remove user', 'error');
+    }
+  };
+
+  const handleSaveWorkspaceSettings = async (updated: Partial<WorkspaceGovernanceSettings>) => {
+    if (!requireRbacPermission(currentUser.permissions.canManageWorkspaceSettings, 'modify workspace settings')) return;
+    try {
+      const res = await fetch('/api/rbac/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          settings: updated,
+          actorRole: currentUser.role,
+          actorName: currentUser.name,
+          actorEmail: currentUser.email
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update workspace settings');
+      if (data.workspaceSettings) setWorkspaceSettings(data.workspaceSettings);
+      if (Array.isArray(data.workspaceActivities)) setWorkspaceActivities(data.workspaceActivities);
+      triggerToast('Workspace governance & RBAC settings saved.', 'success');
+    } catch (err: any) {
+      triggerToast(err?.message || 'Failed to update workspace settings', 'error');
+    }
+  };
+
+  const handleLoginSuccess = async (session: SkyNexAuthSession) => {
+    setAuthSession(session);
+    const matchedProfile = getUserProfileByEmailOrRole(session.roleKey || session.email);
+    setCurrentUser(matchedProfile);
+    localStorage.setItem(ACTIVE_RBAC_ROLE_STORAGE_KEY, matchedProfile.role);
+    setCreatorHistoryFilter(matchedProfile.role === 'content_creator' ? 'mine' : 'all');
+    await fetchAppState(session.isDemo);
+    triggerToast(
+      `Signed in as ${matchedProfile.name} (${matchedProfile.roleLabel} · ${matchedProfile.email}).`,
+      'success'
+    );
   };
 
   const handleSignOut = async () => {
     await signOutSkyNex();
     setAuthSession(null);
-    setIsRoleDropdownOpen(false);
     triggerToast('Signed out of SkyNex AI.', 'info');
   };
 
@@ -642,6 +859,8 @@ export default function App() {
 
       const newReport: AuditReport = data.report;
       setActiveReport(newReport);
+      setAutoFixResult(null);
+      setAutoFixError(null);
       setHasAuditedCurrentDraft(true);
       setIsContentOutdated(false);
       setShowOutdatedFindingsOverride(false);
@@ -724,6 +943,8 @@ export default function App() {
       setSelectedSampleAdId(null);
       setContentTitle(file.name.replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' '));
       setActiveReport(null);
+      setAutoFixResult(null);
+      setAutoFixError(null);
       setHasAuditedCurrentDraft(false);
       setIsContentOutdated(false);
       setShowOutdatedFindingsOverride(false);
@@ -780,6 +1001,8 @@ export default function App() {
     setSelectedSampleAdId(null);
     setImageReviewError(null);
     setActiveReport(null);
+    setAutoFixResult(null);
+    setAutoFixError(null);
     setSelectedFindingId(null);
     setHasAuditedCurrentDraft(false);
     setIsContentOutdated(false);
@@ -830,6 +1053,7 @@ export default function App() {
   };
 
   const handleOpenAddBrandModal = () => {
+    if (!requireRbacPermission(currentUser.permissions.canManageBrandDna, 'create new brand profiles')) return;
     setNewBrandForm({
       name: '',
       industry: 'Fintech & Payment Processing',
@@ -845,6 +1069,7 @@ export default function App() {
 
   const handleCreateBrand = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!requireRbacPermission(currentUser.permissions.canManageBrandDna, 'create new brand profiles')) return;
     if (!newBrandForm.name.trim()) {
       setAddBrandError('Brand name is required.');
       return;
@@ -881,6 +1106,7 @@ export default function App() {
 
   const handleOpenRemoveBrand = (brand: BrandProfile, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    if (!requireRbacPermission(currentUser.permissions.canManageBrandDna, 'remove brand profiles')) return;
     setBrandToRemove(brand);
     setRemoveBrandError(null);
     setIsBrandDropdownOpen(false);
@@ -1040,9 +1266,11 @@ export default function App() {
       return;
     }
 
-    const accepted = activeReport.findings.filter(f => f.decision === 'accepted');
+    const accepted = activeReport.findings.filter(
+      f => f.decision === 'accepted' || f.decision === 'edited'
+    );
     if (accepted.length === 0) {
-      triggerToast('Accept at least one correction above to generate an auto-fixed creative.', 'error');
+      triggerToast('Accept at least one correction above to generate a new AI-corrected creative.', 'error');
       return;
     }
 
@@ -1060,16 +1288,27 @@ export default function App() {
           base64Image: uploadedImageBase64 || undefined,
           acceptedFindings: accepted,
           draftTitle: activeReport.title,
-          filename: activeReport.sourceFilename || uploadedFileName || 'advertisement.png'
+          filename: activeReport.sourceFilename || uploadedImageName || uploadedFileName || 'advertisement.png'
         })
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to generate auto-fixed creative.');
+      if (!res.ok) {
+        throw new Error(data.error || 'AI Image Regeneration failed.');
+      }
+
+      const generatedImg = data.result?.generatedImageBase64 || data.result?.generatedImageUrl;
+      if (!generatedImg || generatedImg === data.result?.originalImageUrl) {
+        throw new Error(
+          'AI Image Regeneration did not produce a distinct new image. Please retry.'
+        );
+      }
 
       setAutoFixResult(data.result);
       triggerToast(
-        `✨ AI Auto-Fix Creative generated! ${data.result.secondAudit?.totalResolved ?? accepted.length} corrections verified by second audit.`,
+        `✨ New AI Creative generated! ${
+          data.result.secondAudit?.totalResolved ?? accepted.length
+        } corrections verified by AI Re-Audit.`,
         'success'
       );
 
@@ -1077,8 +1316,9 @@ export default function App() {
         creativePreviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 150);
     } catch (err: any) {
-      setAutoFixError(err.message || 'Error generating creative');
-      triggerToast(`Auto-fix creative error: ${err.message || 'Server error'}`, 'error');
+      const errMessage = err?.message || 'AI Image Regeneration failed.';
+      setAutoFixError(errMessage);
+      triggerToast(`Image regeneration error: ${errMessage}`, 'error');
     } finally {
       setIsGeneratingAutoFix(false);
     }
@@ -1086,6 +1326,15 @@ export default function App() {
 
   const handleApproveAutoFixCreative = async () => {
     if (!autoFixResult || !activeReport) return;
+    if (
+      !requireRbacPermission(
+        currentUser.permissions.canApproveCreatives,
+        'approve final creatives for publication',
+        'Reviewer & Manager (Rohan Verma) or Workspace Admin (Aditi Sharma)'
+      )
+    ) {
+      return;
+    }
     setIsApprovingAutoFix(true);
     try {
       const res = await fetch('/api/auto-fix-creative/approve', {
@@ -1105,6 +1354,11 @@ export default function App() {
       setAutoFixResult(prev => (prev ? { ...prev, status: 'approved' } : null));
       setActiveReport(data.report);
       setAuditHistory(prev => prev.map(r => (r.id === data.report.id ? data.report : r)));
+      recordRbacActivity(
+        'creative_approved',
+        `Approved AI Auto-Fix Creative (${autoFixResult.id}) for publication (${activeReport.title})`,
+        activeReport.id
+      );
       triggerToast('✓ Creative approved for publication! Compliance record updated.', 'success');
     } catch (err: any) {
       triggerToast(err.message || 'Failed to approve creative', 'error');
@@ -1114,19 +1368,44 @@ export default function App() {
   };
 
   const handleDownloadAutoFixCreative = () => {
-    if (!autoFixResult?.generatedImageUrl) return;
+    const downloadHref = autoFixResult?.generatedImageBase64 || autoFixResult?.generatedImageUrl;
+    if (!downloadHref || downloadHref === autoFixResult?.originalImageUrl) {
+      triggerToast('No generated creative image available to download.', 'error');
+      return;
+    }
     const link = document.createElement('a');
-    link.href = autoFixResult.generatedImageUrl;
-    link.download = `${activeBrand?.name || 'brand'}-autofixed-creative.png`;
+    link.href = downloadHref;
+    link.download = `${activeBrand?.name || 'brand'}-regenerated-creative.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    triggerToast('Downloading corrected creative image...', 'info');
+    triggerToast('Downloading newly generated creative image...', 'info');
   };
 
-  // Final Content Publication Approval
-  const handleContentApprovalDecision = async (status: ContentApprovalStatus) => {
+  // Final Content Publication Approval & Creator Submission Workflow
+  const handleContentApprovalDecision = async (status: ContentApprovalStatus, customNotes?: string) => {
     if (!activeReport) return;
+
+    // Enforce RBAC: Content Creator can only submit for manager approval ('submitted_for_approval'), not self-approve or reject
+    if (
+      (status === 'approved_for_publication' || status === 'changes_requested' || status === 'rejected') &&
+      !requireRbacPermission(
+        currentUser.permissions.canApproveCreatives,
+        'make final compliance sign-off or rejection decisions',
+        'Reviewer & Manager (Rohan Verma) or Workspace Admin (Aditi Sharma)'
+      )
+    ) {
+      return;
+    }
+
+    const notesToUse =
+      customNotes !== undefined
+        ? customNotes
+        : approvalNotesInput.trim() ||
+          (status === 'submitted_for_approval'
+            ? `Submitted by ${currentUser.name} (${currentUser.roleLabel}) for Reviewer & Manager sign-off.`
+            : undefined);
+
     try {
       const res = await fetch(`/api/history/${activeReport.id}/approval`, {
         method: 'POST',
@@ -1134,7 +1413,7 @@ export default function App() {
         body: JSON.stringify({
           contentApprovalStatus: status,
           contentApprovedBy: `${currentUser.name} (${currentUser.roleLabel})`,
-          contentApprovalNotes: approvalNotesInput.trim() || undefined
+          contentApprovalNotes: notesToUse
         })
       });
       const data = await res.json();
@@ -1145,6 +1424,21 @@ export default function App() {
       const updatedReport: AuditReport = data.report;
       setActiveReport(updatedReport);
       setAuditHistory(prev => prev.map(r => (r.id === updatedReport.id ? updatedReport : r)));
+      recordRbacActivity(
+        status === 'submitted_for_approval'
+          ? 'submitted_for_approval'
+          : status === 'changes_requested'
+          ? 'changes_requested'
+          : 'creative_approved',
+        status === 'submitted_for_approval'
+          ? `Submitted "${updatedReport.title}" for Reviewer & Manager approval`
+          : status === 'approved_for_publication'
+          ? `Approved "${updatedReport.title}" for final publication`
+          : status === 'changes_requested'
+          ? `Requested changes from Creator on "${updatedReport.title}"`
+          : `Rejected "${updatedReport.title}" for compliance violations`,
+        updatedReport.id
+      );
       triggerToast(`Updated content publication status: ${status.replace(/_/g, ' ')}`, 'success');
       setApprovalNotesInput('');
     } catch (err: any) {
@@ -1184,8 +1478,11 @@ export default function App() {
     }
   };
 
-  // Rule Management: Add / Edit / Toggle Approval / Delete
+  // Rule Management: Add / Edit / Toggle Approval / Delete (Guarded by RBAC: Workspace Admin only for mutations)
   const handleOpenCreateRule = (mode: 'manual' | 'ai_text' | 'pdf' | 'test' = 'manual') => {
+    if (mode !== 'test' && !requireRbacPermission(currentUser.permissions.canManageRules, 'create or import brand rules')) {
+      return;
+    }
     setEditingRule(null);
     setRuleModalMode(mode);
     setRuleForm({
@@ -1203,6 +1500,7 @@ export default function App() {
   };
 
   const handleOpenEditRule = (rule: BrandRule) => {
+    if (!requireRbacPermission(currentUser.permissions.canManageRules, 'edit brand rules')) return;
     setEditingRule(rule);
     setRuleModalMode('manual');
     setRuleForm({
@@ -1230,6 +1528,7 @@ export default function App() {
   const handleSaveRule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeBrand) return;
+    if (!requireRbacPermission(currentUser.permissions.canManageRules, 'save brand rule modifications')) return;
 
     if (!ruleForm.title.trim() || !ruleForm.approvedValue.trim()) {
       triggerToast('Title and approved value are required.', 'error');
@@ -1249,7 +1548,9 @@ export default function App() {
         sourceRef: ruleForm.sourceRef.trim(),
         status: ruleForm.status,
         severity: ruleForm.severity,
-        explanation: ruleForm.explanation.trim()
+        explanation: ruleForm.explanation.trim(),
+        updatedBy: currentUser.name,
+        updatedByRole: currentUser.roleLabel
       };
 
       let res: globalThis.Response;
@@ -1271,6 +1572,8 @@ export default function App() {
       if (!res.ok) throw new Error(data.error || 'Failed to save rule');
 
       setBrands(prev => ({ ...prev, [activeBrand.id]: data.brand }));
+      if (data.regulatoryDepartments) setRegulatoryDepartments(data.regulatoryDepartments);
+      if (data.regulatoryOverview) setRegulatoryOverview(data.regulatoryOverview);
       setIsRuleModalOpen(false);
       triggerToast(`Rule "${ruleForm.title}" saved successfully.`, 'success');
     } catch (err: any) {
@@ -1280,15 +1583,22 @@ export default function App() {
 
   const handleToggleRuleApproval = async (rule: BrandRule, targetStatus: RuleApprovalStatus) => {
     if (!activeBrand) return;
+    if (!requireRbacPermission(currentUser.permissions.canManageRules, 'change rule approval status')) return;
     try {
       const res = await fetch(`/api/brands/${activeBrand.id}/rules/${rule.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: targetStatus })
+        body: JSON.stringify({
+          status: targetStatus,
+          updatedBy: currentUser.name,
+          updatedByRole: currentUser.roleLabel
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Status update failed');
       setBrands(prev => ({ ...prev, [activeBrand.id]: data.brand }));
+      if (data.regulatoryDepartments) setRegulatoryDepartments(data.regulatoryDepartments);
+      if (data.regulatoryOverview) setRegulatoryOverview(data.regulatoryOverview);
       setActiveRuleMenuId(null);
       triggerToast(`Rule ${rule.id} updated to ${targetStatus}.`, 'success');
     } catch (err: any) {
@@ -1324,6 +1634,7 @@ export default function App() {
   };
 
   const handleOpenDeleteAllModal = () => {
+    if (!requireRbacPermission(currentUser.permissions.canManageRules, 'delete brand rules')) return;
     if (!activeBrand || activeBrand.rules.length === 0) {
       triggerToast('There are no rules to delete for this brand.', 'info');
       return;
@@ -1430,6 +1741,7 @@ export default function App() {
 
   const handleDeleteRule = async (ruleId: string) => {
     if (!activeBrand) return;
+    if (!requireRbacPermission(currentUser.permissions.canManageRules, 'delete brand rules')) return;
     const targetRule = activeBrand.rules.find(r => r.id === ruleId);
     const previousRules = activeBrand.rules || [];
     try {
@@ -1444,6 +1756,8 @@ export default function App() {
         `Deleted rule ${ruleId}${targetRule ? ` (${targetRule.title})` : ''}`
       );
       setBrands(prev => ({ ...prev, [activeBrand.id]: data.brand }));
+      if (data.regulatoryDepartments) setRegulatoryDepartments(data.regulatoryDepartments);
+      if (data.regulatoryOverview) setRegulatoryOverview(data.regulatoryOverview);
       setActiveRuleMenuId(null);
       triggerToast(`Deleted rule ${ruleId}. Click "Undo" to restore.`, 'info');
     } catch (err: any) {
@@ -1453,6 +1767,7 @@ export default function App() {
 
   const handleDuplicateRule = async (rule: BrandRule) => {
     if (!activeBrand) return;
+    if (!requireRbacPermission(currentUser.permissions.canManageRules, 'duplicate brand rules')) return;
     try {
       const payload = {
         title: `${rule.title} (Copy)`,
@@ -3025,86 +3340,25 @@ export default function App() {
               )}
             </div>
 
-            {/* User Profile & Role Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => setIsRoleDropdownOpen(!isRoleDropdownOpen)}
-                className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200/90 hover:border-slate-300 bg-white hover:bg-slate-50 transition-all cursor-pointer"
-              >
-                <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                  {authSession?.isDemo ? 'DE' : currentUser.initials}
-                </div>
-                <div className="text-left hidden sm:block">
-                  <div className="text-xs font-bold text-slate-900 leading-tight">
-                    {authSession?.isDemo ? 'Demo Evaluator' : currentUser.name}
-                  </div>
-                  <div className="text-[10px] text-slate-500 leading-tight">
-                    {authSession?.isDemo ? DEMO_CREDENTIALS.email : currentUser.roleLabel}
-                  </div>
-                </div>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400 ml-0.5" />
-              </button>
-
-              {isRoleDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl border border-slate-200 shadow-xl py-2 z-50">
-                  {authSession && (
-                    <div className="px-3.5 py-2 border-b border-slate-100 bg-slate-50/70">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                          Authenticated Account
-                        </span>
-                        {authSession.isDemo && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                            DEMO MODE
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs font-bold text-slate-900 truncate mt-1">{authSession.displayName}</div>
-                      <div className="text-[11px] font-mono text-slate-500 truncate">{authSession.email}</div>
-                    </div>
-                  )}
-                  <div className="px-3 py-1.5 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                    Switch Active Governance Persona
-                  </div>
-                  <div className="p-1.5 space-y-1">
-                    {USER_PROFILES.map(profile => (
-                      <button
-                        key={profile.id}
-                        onClick={() => {
-                          setCurrentUser(profile);
-                          setIsRoleDropdownOpen(false);
-                          triggerToast(`Switched active persona to ${profile.name} (${profile.roleLabel})`, 'info');
-                        }}
-                        className={`w-full text-left p-2 rounded-lg text-xs flex items-start gap-2.5 hover:bg-slate-50 cursor-pointer ${
-                          currentUser.id === profile.id ? 'bg-blue-50/80 border border-blue-200' : ''
-                        }`}
-                      >
-                        <div className="w-6 h-6 rounded-full bg-[#0F172A] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                          {profile.initials}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="font-semibold text-slate-900">{profile.name}</div>
-                          <div className="text-[11px] text-slate-500">{profile.roleLabel}</div>
-                        </div>
-                        {currentUser.id === profile.id && (
-                          <Check className="w-3.5 h-3.5 text-blue-600 ml-auto shrink-0 mt-1" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="px-2 pt-1.5 border-t border-slate-100">
-                    <button
-                      type="button"
-                      onClick={handleSignOut}
-                      className="w-full p-2 rounded-lg text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2 cursor-pointer transition-colors"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Sign Out / Return to Login Page</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            {/* User Profile & Role-Switching Dropdown (ACTIVE PROTOTYPE ACCOUNT) */}
+            <ProfileRoleDropdown
+              currentUser={currentUser}
+              userProfiles={USER_PROFILES}
+              authSession={authSession}
+              isOpen={isRoleDropdownOpen}
+              onToggleOpen={() => setIsRoleDropdownOpen(prev => !prev)}
+              onClose={() => setIsRoleDropdownOpen(false)}
+              onSelectRole={profile => {
+                handleSwitchRole(profile);
+                setIsRoleDropdownOpen(false);
+              }}
+              onOpenWorkspaceAdmin={() => {
+                setIsRoleDropdownOpen(false);
+                setWorkspaceAdminInitialTab('members');
+                setIsWorkspaceAdminModalOpen(true);
+              }}
+              onSignOut={handleSignOut}
+            />
           </div>
         </header>
 
@@ -3748,36 +4002,112 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* Final Content Publication Approval Bar */}
-                    <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div>
-                        <div className="font-bold text-xs text-slate-900">
-                          Final Content Publication Approval
+                    {/* Final Content Publication Approval & RBAC Sign-Off Bar */}
+                    <div className="pt-3.5 border-t border-slate-100 space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <div className="font-bold text-xs text-slate-900 flex items-center gap-2">
+                            <span>Final Content Publication Approval</span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
+                                activeReport.contentApprovalStatus === 'approved_for_publication'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : activeReport.contentApprovalStatus === 'submitted_for_approval'
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                  : activeReport.contentApprovalStatus === 'changes_requested'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : activeReport.contentApprovalStatus === 'rejected'
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                  : 'bg-slate-100 text-slate-700 border-slate-200'
+                              }`}
+                            >
+                              {activeReport.contentApprovalStatus.replace(/_/g, ' ')}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Submitted by: <strong>{activeReport.submittedBy}</strong> ({activeReport.submittedByRole})
+                            {activeReport.contentApprovedBy && (
+                              <>
+                                {' '}· Last Decision by: <strong>{activeReport.contentApprovedBy}</strong>
+                              </>
+                            )}
+                          </p>
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5">
-                          Status:{' '}
-                          <strong className="uppercase text-slate-700">
-                            {activeReport.contentApprovalStatus.replace(/_/g, ' ')}
-                          </strong>
-                        </p>
+
+                        <span className="text-[11px] font-semibold text-slate-500">
+                          Acting as: <strong className="text-slate-800">{currentUser.name} ({currentUser.roleLabel})</strong>
+                        </span>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleContentApprovalDecision('approved_for_publication')}
-                          className="px-3.5 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg cursor-pointer transition-colors"
-                        >
-                          Approve for Publication
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleContentApprovalDecision('changes_requested')}
-                          className="px-3.5 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg cursor-pointer transition-colors"
-                        >
-                          Request Changes
-                        </button>
-                      </div>
+                      {/* Reviewer Feedback / Notes Banner (Visible to Creator, Reviewer, and Admin) */}
+                      {activeReport.contentApprovalNotes && (
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/90 text-xs text-slate-700 flex items-start gap-2">
+                          <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold text-slate-900">Reviewer / Submission Note: </span>
+                            <span>{activeReport.contentApprovalNotes}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Role-Specific Approval Controls */}
+                      {currentUser.permissions.canApproveCreatives ? (
+                        <div className="space-y-2.5">
+                          <input
+                            type="text"
+                            value={approvalNotesInput}
+                            onChange={e => setApprovalNotesInput(e.target.value)}
+                            placeholder={`Add reviewer feedback or compliance sign-off note as ${currentUser.name} (${currentUser.roleLabel})...`}
+                            className="w-full h-9 px-3 rounded-lg border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleContentApprovalDecision('rejected')}
+                              className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 rounded-lg cursor-pointer transition-colors"
+                            >
+                              Reject Creative
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleContentApprovalDecision('changes_requested')}
+                              className="px-3.5 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg cursor-pointer transition-colors"
+                            >
+                              Request Changes from Creator
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleContentApprovalDecision('approved_for_publication')}
+                              className="px-3.5 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg cursor-pointer transition-colors flex items-center gap-1.5 shadow-2xs"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Approve for Publication</span>
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="text-xs text-blue-950">
+                            <div className="font-bold flex items-center gap-1.5">
+                              <Lock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <span>Content Creator Workflow ({currentUser.name})</span>
+                            </div>
+                            <p className="text-[11px] text-blue-800 mt-0.5">
+                              Content Creators cannot approve their own final creatives. Apply suggested corrections or generate an AI Auto-Fix creative, then submit for Reviewer &amp; Manager sign-off.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleContentApprovalDecision('submitted_for_approval')}
+                            disabled={activeReport.contentApprovalStatus === 'submitted_for_approval'}
+                            className="px-3.5 py-2 text-xs font-bold bg-blue-600 hover:bg-blue-700 disabled:bg-emerald-600 text-white rounded-lg cursor-pointer transition-colors shrink-0 shadow-xs"
+                          >
+                            {activeReport.contentApprovalStatus === 'submitted_for_approval'
+                              ? '✓ Submitted for Manager Approval'
+                              : 'Submit for Manager Approval'}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -4028,77 +4358,94 @@ export default function App() {
                               </div>
                             )}
 
-                            {/* Action Buttons Aligned to Bottom-Right */}
-                            <div className="mt-3 flex items-center justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  handleFindingDecision(
-                                    finding,
-                                    finding.decision === 'rejected' ? 'pending' : 'rejected'
-                                  );
-                                }}
-                                className={`px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
-                                  finding.decision === 'rejected'
-                                    ? 'bg-slate-200 border-slate-400 text-slate-800'
-                                    : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
-                                }`}
-                                title={
-                                  finding.decision === 'rejected'
-                                    ? 'Excluded from Auto-Fix (Click to reset)'
-                                    : 'Reject this correction and exclude from Auto-Fix'
-                                }
-                              >
-                                {finding.decision === 'rejected' ? '✗ Rejected' : 'Reject'}
-                              </button>
-
-                              {finding.requiresHumanReview && !finding.suggestedReplacement && !finding.editedReplacement ? (
-                                <button
-                                  type="button"
-                                  onClick={e => {
-                                    e.stopPropagation();
-                                    handleFindingDecision(finding, 'verification_requested');
-                                  }}
-                                  className={`px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
-                                    finding.decision === 'verification_requested'
-                                      ? 'bg-amber-600 border-amber-600 text-white'
-                                      : 'bg-white hover:bg-amber-50 border-amber-500 text-amber-700'
-                                  }`}
-                                >
-                                  Request Confirmation
-                                </button>
+                            {/* Action Buttons Aligned to Bottom-Right (RBAC Aware) */}
+                            <div className="mt-3 flex items-center justify-between gap-2">
+                              {!currentUser.permissions.canAcceptRejectFindings ? (
+                                <span className="text-[10px] font-semibold text-slate-500">
+                                  Creator Mode: Apply fix to draft · Final sign-off by Reviewer
+                                </span>
                               ) : (
-                                <button
-                                  type="button"
-                                  onClick={e => {
-                                    e.stopPropagation();
-                                    handleFindingDecision(
-                                      finding,
-                                      finding.decision === 'accepted' ? 'pending' : 'accepted'
-                                    );
-                                  }}
-                                  className={`px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
-                                    finding.decision === 'accepted'
-                                      ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
-                                      : 'bg-white hover:bg-emerald-50 border-emerald-500 text-emerald-700'
-                                  }`}
-                                  title={
-                                    finding.decision === 'accepted'
-                                      ? 'Fix Accepted (Click to toggle)'
-                                      : 'Accept this correction for Auto-Fix'
-                                  }
-                                >
-                                  {finding.decision === 'accepted' ? (
-                                    <>
-                                      <Check className="w-3.5 h-3.5" />
-                                      <span>Accepted</span>
-                                    </>
-                                  ) : (
-                                    <span>Accept Fix</span>
-                                  )}
-                                </button>
+                                <span className="text-[10px] font-semibold text-slate-400">
+                                  Reviewer Decision ({currentUser.roleLabel})
+                                </span>
                               )}
+                              <div className="flex items-center gap-2">
+                                {currentUser.permissions.canAcceptRejectFindings && (
+                                  <button
+                                    type="button"
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      handleFindingDecision(
+                                        finding,
+                                        finding.decision === 'rejected' ? 'pending' : 'rejected'
+                                      );
+                                    }}
+                                    className={`px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
+                                      finding.decision === 'rejected'
+                                        ? 'bg-slate-200 border-slate-400 text-slate-800'
+                                        : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                                    }`}
+                                    title={
+                                      finding.decision === 'rejected'
+                                        ? 'Excluded from Auto-Fix (Click to reset)'
+                                        : 'Reject this correction and exclude from Auto-Fix'
+                                    }
+                                  >
+                                    {finding.decision === 'rejected' ? '✗ Rejected' : 'Reject'}
+                                  </button>
+                                )}
+
+                                {finding.requiresHumanReview && !finding.suggestedReplacement && !finding.editedReplacement ? (
+                                  <button
+                                    type="button"
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      handleFindingDecision(finding, 'verification_requested');
+                                    }}
+                                    className={`px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
+                                      finding.decision === 'verification_requested'
+                                        ? 'bg-amber-600 border-amber-600 text-white'
+                                        : 'bg-white hover:bg-amber-50 border-amber-500 text-amber-700'
+                                    }`}
+                                  >
+                                    Request Confirmation
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      handleFindingDecision(
+                                        finding,
+                                        finding.decision === 'accepted' ? 'pending' : 'accepted'
+                                      );
+                                    }}
+                                    className={`px-3.5 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 ${
+                                      finding.decision === 'accepted'
+                                        ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
+                                        : 'bg-white hover:bg-emerald-50 border-emerald-500 text-emerald-700'
+                                    }`}
+                                    title={
+                                      finding.decision === 'accepted'
+                                        ? 'Fix Accepted (Click to toggle)'
+                                        : 'Accept this correction for Auto-Fix'
+                                    }
+                                  >
+                                    {finding.decision === 'accepted' ? (
+                                      <>
+                                        <Check className="w-3.5 h-3.5" />
+                                        <span>
+                                          {currentUser.permissions.canAcceptRejectFindings ? 'Accepted' : 'Fix Staged'}
+                                        </span>
+                                      </>
+                                    ) : (
+                                      <span>
+                                        {currentUser.permissions.canAcceptRejectFindings ? 'Accept Fix' : 'Apply Fix to Draft'}
+                                      </span>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         );
@@ -4116,6 +4463,7 @@ export default function App() {
                 <AutoFixCreativePanel
                   findings={activeReport.findings}
                   isGenerating={isGeneratingAutoFix}
+                  error={autoFixError}
                   onGenerate={handleGenerateAutoFix}
                   hasGeneratedResult={Boolean(autoFixResult)}
                   onScrollToResult={() => {
@@ -4123,14 +4471,18 @@ export default function App() {
                   }}
                 />
 
-                {/* AI Auto-Fix Generated Creative Preview (Side-by-Side, 2nd Audit & Approvals) */}
+                {/* AI Auto-Fix Generated Creative Preview (Before/After, AI Re-Audit & Approvals) */}
                 {autoFixResult && (
                   <AutoFixCreativePreview
                     autoFixResult={autoFixResult}
                     isApproving={isApprovingAutoFix}
                     isRegenerating={isGeneratingAutoFix}
+                    regenerationError={autoFixError}
                     onRegenerate={handleGenerateAutoFix}
                     onApprove={handleApproveAutoFixCreative}
+                    onSubmitForManagerApproval={() => handleContentApprovalDecision('submitted_for_approval')}
+                    onRequestChanges={() => handleContentApprovalDecision('changes_requested')}
+                    currentUser={currentUser}
                     onDownload={handleDownloadAutoFixCreative}
                     onClose={() => setAutoFixResult(null)}
                   />
@@ -4170,6 +4522,19 @@ export default function App() {
                   [updatedBrand.id]: updatedBrand
                 }));
               }}
+              regulatoryDepartments={regulatoryDepartments}
+              onRegulatoryUpdated={(depts, ov, updatedBrand) => {
+                setRegulatoryDepartments(depts);
+                if (ov) setRegulatoryOverview(ov);
+                if (updatedBrand) {
+                  setBrands(prev => ({
+                    ...prev,
+                    [updatedBrand.id]: updatedBrand
+                  }));
+                }
+              }}
+              onNavigateToRegulatory={() => setCurrentView('regulatory')}
+              initialTab={brandKnowledgeInitialTab}
               triggerToast={triggerToast}
             />
           )}
@@ -4184,11 +4549,18 @@ export default function App() {
               overview={regulatoryOverview}
               onRefreshData={async () => {
                 try {
-                  const res = await fetch(`/api/regulatory/overview?brandId=${activeBrandId}`);
+                  const res = await fetch('/api/regulatory/sync-all', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ brandId: activeBrandId })
+                  });
                   if (res.ok) {
                     const data = await res.json();
                     if (data.departments) setRegulatoryDepartments(data.departments);
                     if (data.overview) setRegulatoryOverview(data.overview);
+                    if (data.brand) {
+                      setBrands(prev => ({ ...prev, [data.brand.id]: data.brand }));
+                    }
                   }
                 } catch (err) {
                   console.error('Error refreshing regulatory data:', err);
@@ -4196,14 +4568,23 @@ export default function App() {
               }}
               onSyncDepartment={async (deptId) => {
                 try {
-                  const res = await fetch(`/api/regulatory/departments/${deptId}/sync`, { method: 'POST' });
+                  const res = await fetch(`/api/regulatory/departments/${deptId}/sync`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ brandId: activeBrandId })
+                  });
                   if (res.ok) {
                     const data = await res.json();
-                    if (data.department) {
+                    if (data.departments) {
+                      setRegulatoryDepartments(data.departments);
+                    } else if (data.department) {
                       setRegulatoryDepartments(prev => prev.map(d => (d.id === deptId ? data.department : d)));
                     }
                     if (data.overview) setRegulatoryOverview(data.overview);
-                    triggerToast(`Synced circulars & rules for ${deptId.toUpperCase()}`, 'success');
+                    if (data.brand) {
+                      setBrands(prev => ({ ...prev, [data.brand.id]: data.brand }));
+                    }
+                    triggerToast(`Synced circulars & rules for ${deptId.toUpperCase()} to Government Rules`, 'success');
                   }
                 } catch (err) {
                   triggerToast('Failed to sync department', 'error');
@@ -4236,6 +4617,8 @@ export default function App() {
                     if (data.brand) {
                       setBrands(prev => ({ ...prev, [activeBrandId]: data.brand }));
                     }
+                    if (data.departments) setRegulatoryDepartments(data.departments);
+                    if (data.overview) setRegulatoryOverview(data.overview);
                     triggerToast(`Imported statutory rule ${ruleId} to ${activeBrand.name}`, 'success');
                   }
                 } catch (err) {
@@ -4254,6 +4637,10 @@ export default function App() {
                   console.error('Error marking update as read:', err);
                 }
               }}
+              onNavigateToGovernmentRules={() => {
+                setBrandKnowledgeInitialTab('government_rules');
+                setCurrentView('knowledge');
+              }}
               triggerToast={triggerToast}
             />
           )}
@@ -4270,6 +4657,16 @@ export default function App() {
                   [updatedBrand.id]: updatedBrand
                 }));
               }}
+              onRegulatoryUpdated={(depts, ov, updatedBrand) => {
+                setRegulatoryDepartments(depts);
+                if (ov) setRegulatoryOverview(ov);
+                if (updatedBrand) {
+                  setBrands(prev => ({
+                    ...prev,
+                    [updatedBrand.id]: updatedBrand
+                  }));
+                }
+              }}
               triggerToast={triggerToast}
             />
           )}
@@ -4279,11 +4676,42 @@ export default function App() {
           {/* ========================================================= */}
           {currentView === 'history' && (
             <div className="max-w-6xl mx-auto space-y-5">
-              <div>
-                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Review History</h1>
-                <p className="text-xs text-slate-500 mt-1">
-                  Traceable audit log of every content review, finding resolution, and publication decision.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Review History</h1>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {currentUser.permissions.canViewAllAuditHistory
+                      ? `Complete workspace audit & approval history visible to ${currentUser.name} (${currentUser.roleLabel}).`
+                      : `Viewing submission history & reviewer feedback for ${currentUser.name} (${currentUser.roleLabel}).`}
+                  </p>
+                </div>
+
+                {!currentUser.permissions.canViewAllAuditHistory && (
+                  <div className="inline-flex items-center rounded-xl bg-white border border-slate-200 p-1 text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setCreatorHistoryFilter('mine')}
+                      className={`px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                        creatorHistoryFilter === 'mine'
+                          ? 'bg-blue-600 text-white'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      My Submissions ({currentUser.name})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCreatorHistoryFilter('all')}
+                      className={`px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                        creatorHistoryFilter === 'all'
+                          ? 'bg-blue-600 text-white'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      All Workspace Drafts
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden">
@@ -4295,7 +4723,7 @@ export default function App() {
                         <th className="py-3 px-4">Title & Draft Preview</th>
                         <th className="py-3 px-4">Brand</th>
                         <th className="py-3 px-4">Issues Found</th>
-                        <th className="py-3 px-4">Publication Status</th>
+                        <th className="py-3 px-4">Publication Status &amp; Reviewer Feedback</th>
                         <th className="py-3 px-4">Submitted By</th>
                         <th className="py-3 px-4">Timestamp</th>
                         <th className="py-3 px-4 text-right">Action</th>
@@ -4309,54 +4737,86 @@ export default function App() {
                           </td>
                         </tr>
                       ) : (
-                        auditHistory.map(report => (
-                          <tr key={report.id} className="hover:bg-slate-50/60 transition-colors">
-                            <td className="py-3.5 px-4 font-mono font-semibold text-slate-700 whitespace-nowrap">
-                              {report.id}
-                            </td>
-                            <td className="py-3.5 px-4 max-w-xs">
-                              <div className="font-bold text-slate-900">{report.title}</div>
-                              <p className="text-[11px] text-slate-500 mt-0.5 truncate">{report.originalText}</p>
-                            </td>
-                            <td className="py-3.5 px-4 font-medium text-slate-700 whitespace-nowrap">
-                              {report.brandName}
-                            </td>
-                            <td className="py-3.5 px-4 whitespace-nowrap">
-                              <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                  report.findings.length === 0
-                                    ? 'bg-emerald-50 text-emerald-700'
-                                    : 'bg-rose-50 text-rose-700'
-                                }`}
-                              >
-                                {report.findings.length} findings
-                              </span>
-                            </td>
-                            <td className="py-3.5 px-4 whitespace-nowrap">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 uppercase">
-                                {report.contentApprovalStatus.replace(/_/g, ' ')}
-                              </span>
-                            </td>
-                            <td className="py-3.5 px-4 text-slate-600 whitespace-nowrap">
-                              {report.submittedBy}
-                            </td>
-                            <td className="py-3.5 px-4 text-slate-500 text-[11px] whitespace-nowrap">
-                              {report.createdAt.slice(0, 10)}
-                            </td>
-                            <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                              <button
-                                onClick={() => {
-                                  setActiveReport(report);
-                                  setCurrentView('review');
-                                  triggerToast(`Loaded review ${report.id} into Review Content.`, 'info');
-                                }}
-                                className="px-2.5 py-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
-                              >
-                                View Report →
-                              </button>
-                            </td>
-                          </tr>
-                        ))
+                        auditHistory
+                          .filter(report => {
+                            if (
+                              !currentUser.permissions.canViewAllAuditHistory &&
+                              creatorHistoryFilter === 'mine'
+                            ) {
+                              return (
+                                report.submittedBy === currentUser.name ||
+                                report.submittedByRole === 'Content Creator' ||
+                                report.id === activeReport?.id
+                              );
+                            }
+                            return true;
+                          })
+                          .map(report => (
+                            <tr key={report.id} className="hover:bg-slate-50/60 transition-colors">
+                              <td className="py-3.5 px-4 font-mono font-semibold text-slate-700 whitespace-nowrap">
+                                {report.id}
+                              </td>
+                              <td className="py-3.5 px-4 max-w-xs">
+                                <div className="font-bold text-slate-900">{report.title}</div>
+                                <p className="text-[11px] text-slate-500 mt-0.5 truncate">{report.originalText}</p>
+                              </td>
+                              <td className="py-3.5 px-4 font-medium text-slate-700 whitespace-nowrap">
+                                {report.brandName}
+                              </td>
+                              <td className="py-3.5 px-4 whitespace-nowrap">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    report.findings.length === 0
+                                      ? 'bg-emerald-50 text-emerald-700'
+                                      : 'bg-rose-50 text-rose-700'
+                                  }`}
+                                >
+                                  {report.findings.length} findings
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 max-w-xs">
+                                <span
+                                  className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                    report.contentApprovalStatus === 'approved_for_publication'
+                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                      : report.contentApprovalStatus === 'submitted_for_approval'
+                                      ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                      : report.contentApprovalStatus === 'changes_requested'
+                                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                      : report.contentApprovalStatus === 'rejected'
+                                      ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                      : 'bg-slate-100 text-slate-700'
+                                  }`}
+                                >
+                                  {report.contentApprovalStatus.replace(/_/g, ' ')}
+                                </span>
+                                {report.contentApprovalNotes && (
+                                  <div className="text-[11px] text-slate-500 mt-1 truncate" title={report.contentApprovalNotes}>
+                                    {report.contentApprovalNotes}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 text-slate-600 whitespace-nowrap">
+                                <div className="font-semibold text-slate-800">{report.submittedBy}</div>
+                                <div className="text-[10px] text-slate-400">{report.submittedByRole}</div>
+                              </td>
+                              <td className="py-3.5 px-4 text-slate-500 text-[11px] whitespace-nowrap">
+                                {report.createdAt.slice(0, 10)}
+                              </td>
+                              <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                                <button
+                                  onClick={() => {
+                                    setActiveReport(report);
+                                    setCurrentView('review');
+                                    triggerToast(`Loaded review ${report.id} into Review Content.`, 'info');
+                                  }}
+                                  className="px-2.5 py-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
+                                >
+                                  View Report →
+                                </button>
+                              </td>
+                            </tr>
+                          ))
                       )}
                     </tbody>
                   </table>
@@ -4893,6 +5353,24 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ========================================================= */}
+      {/* MODAL 7: WORKSPACE ADMINISTRATION & 3-ROLE RBAC CONSOLE   */}
+      {/* ========================================================= */}
+      <WorkspaceAdminModal
+        isOpen={isWorkspaceAdminModalOpen}
+        onClose={() => setIsWorkspaceAdminModalOpen(false)}
+        currentUser={currentUser}
+        userProfiles={USER_PROFILES}
+        onSwitchRole={handleSwitchRole}
+        members={workspaceMembers}
+        onInviteMember={handleInviteWorkspaceMember}
+        onChangeMemberRole={handleChangeMemberRole}
+        onRemoveMember={handleRemoveWorkspaceMember}
+        settings={workspaceSettings}
+        onUpdateSettings={handleSaveWorkspaceSettings}
+        activities={workspaceActivities}
+      />
     </div>
   );
 }

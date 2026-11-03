@@ -6,7 +6,7 @@ import {
   validatePosterDiscountAndPricing,
   classifyPosterEntities
 } from '../src/utils/discountValidation.ts';
-import { BrandProduct } from '../src/types.ts';
+import type { BrandProduct } from '../src/types.ts';
 import { NOVAPAY_BRAND } from '../src/data/mockBrands.ts';
 import { runDeterministicAudit } from '../server.ts';
 

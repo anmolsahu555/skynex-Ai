@@ -57,19 +57,27 @@ import {
   BrandDnaVerificationStatus,
   DiscoveredWebPage,
   ExtractedBrandIntelligenceItem,
-  BrandDnaRescanDiffItem
+  BrandDnaRescanDiffItem,
+  GovernmentDepartment,
+  RegulatoryComplianceOverview
 } from '../types.ts';
 import WebsiteRuleVerificationEngine from './WebsiteRuleVerificationEngine.tsx';
 
 interface BrandDnaWorkspaceProps {
   activeBrand: BrandProfile;
   onBrandUpdated: (updatedBrand: BrandProfile) => void;
+  onRegulatoryUpdated?: (
+    departments: GovernmentDepartment[],
+    overview?: RegulatoryComplianceOverview,
+    brand?: BrandProfile
+  ) => void;
   triggerToast: (text: string, type?: 'info' | 'error' | 'success') => void;
 }
 
 export default function BrandDnaWorkspace({
   activeBrand,
   onBrandUpdated,
+  onRegulatoryUpdated,
   triggerToast
 }: BrandDnaWorkspaceProps) {
   // Source Mode: 'website' | 'social'
@@ -245,6 +253,12 @@ export default function BrandDnaWorkspace({
       setSelectedItemIds(new Set());
       setEditingItemId(null);
       setIsEditingDna(false);
+      if (data.brand) {
+        onBrandUpdated(data.brand);
+      }
+      if (data.regulatoryDepartments && onRegulatoryUpdated) {
+        onRegulatoryUpdated(data.regulatoryDepartments, data.regulatoryOverview, data.brand);
+      }
 
       const crawledCount = (data.crawledPages || []).filter((p: DiscoveredWebPage) => p.status === 'crawled').length;
       const restrictedCount = (data.crawledPages || []).filter((p: DiscoveredWebPage) => p.status === 'inaccessible').length;
@@ -293,6 +307,12 @@ export default function BrandDnaWorkspace({
       setExtractedItems(data.extractedItems || []);
       setCrawledPages(data.crawledPages || []);
       setRescanDiffs(data.rescanDiffs || []);
+      if (data.brand) {
+        onBrandUpdated(data.brand);
+      }
+      if (data.regulatoryDepartments && onRegulatoryUpdated) {
+        onRegulatoryUpdated(data.regulatoryDepartments, data.regulatoryOverview, data.brand);
+      }
 
       if (Array.isArray(data.rescanDiffs) && data.rescanDiffs.length > 0) {
         setShowRescanModal(true);
@@ -475,6 +495,9 @@ export default function BrandDnaWorkspace({
       }
 
       onBrandUpdated(data.brand);
+      if (data.regulatoryDepartments && onRegulatoryUpdated) {
+        onRegulatoryUpdated(data.regulatoryDepartments, data.regulatoryOverview, data.brand);
+      }
       setWorkingDna(data.dnaProfile);
       setExtractedItems(data.dnaProfile.extractedItems || []);
       setSyncSummary(data.syncedCounts);
@@ -854,36 +877,97 @@ export default function BrandDnaWorkspace({
 
   const hasSavedProfile = Boolean(activeBrand.brandDnaProfile?.isSaved);
 
+  const demoWebsitePresets = [
+    {
+      label: 'YouTube',
+      url: 'https://www.youtube.com',
+      renderLogo: () => (
+        <div className="w-9 h-6 rounded-md bg-red-600 text-white flex items-center justify-center shadow-2xs">
+          <div className="w-0 h-0 border-t-[4px] border-t-transparent border-l-[7px] border-l-white border-b-[4px] border-b-transparent ml-0.5" />
+        </div>
+      )
+    },
+    {
+      label: 'Amazon',
+      url: 'https://www.amazon.in',
+      renderLogo: () => (
+        <div className="text-lg font-black text-slate-900 leading-none tracking-tighter flex flex-col items-center">
+          <span>a</span>
+          <span className="w-5 h-1 rounded-full bg-amber-400 -mt-0.5" />
+        </div>
+      )
+    },
+    {
+      label: 'Flipkart',
+      url: 'https://www.flipkart.com',
+      renderLogo: () => (
+        <div className="w-7 h-7 rounded-md bg-amber-400 text-blue-700 font-black italic text-base flex items-center justify-center shadow-2xs">
+          f
+        </div>
+      )
+    },
+    {
+      label: 'Coca-Cola',
+      url: 'https://www.coca-cola.com',
+      renderLogo: () => (
+        <span className="font-serif italic font-black text-red-600 text-xs tracking-tight whitespace-nowrap">
+          Coca-Cola
+        </span>
+      )
+    },
+    {
+      label: 'Nike',
+      url: 'https://www.nike.com',
+      renderLogo: () => (
+        <svg className="w-8 h-5 text-slate-900 fill-current" viewBox="0 0 24 24">
+          <path d="M21 8.719L7.836 14.303C6.74 14.768 5.818 15 5.075 15c-.836 0-1.445-.295-1.819-.884-.485-.76-.273-1.982.559-3.272.494-.754 1.122-1.446 1.734-2.108-.144.234-1.415 2.349-.025 3.345.275.2.666.298 1.147.298.386 0 .829-.063 1.316-.19L21 8.719z" />
+        </svg>
+      )
+    },
+    {
+      label: 'FSSAI',
+      url: 'https://www.fssai.gov.in',
+      renderLogo: () => (
+        <span className="font-serif italic font-extrabold text-blue-900 text-xs tracking-tight border-b-2 border-amber-500 leading-none pb-0.5">
+          fssai
+        </span>
+      )
+    }
+  ];
+
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-5">
       {/* ================================================================= */}
-      {/* 1. SECTION HEADER & WORKFLOW BAR                                  */}
+      {/* 1. SECTION HEADER & SAVED STATUS BADGE                            */}
       {/* ================================================================= */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Brand DNA Analyzer</h1>
-          <p className="text-xs font-semibold text-blue-600 mt-0.5">
-            Learn your brand. Maintain consistency. Create with confidence.
-          </p>
-          <p className="text-xs text-slate-500 mt-1 max-w-3xl leading-relaxed">
-            Analyze your company’s live website or social media reference content to extract a structured Brand DNA Profile (colors, typography, logo usage, visual patterns, and voice), then check new creatives and apply One-Click Change remediations.
-          </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-200/80 text-blue-600 flex items-center justify-center shrink-0 shadow-2xs">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Brand DNA Analyzer</h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Extract official website rules, policies, and visual guidelines to verify creative compliance.
+            </p>
+          </div>
         </div>
 
-        {/* Saved Profile Status & Quick Re-analyze */}
+        {/* Saved Profile Status */}
         <div className="flex items-center gap-2.5 shrink-0">
-          {hasSavedProfile ? (
-            <div className="px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-2">
+          {hasSavedProfile || workingDna ? (
+            <button
+              type="button"
+              onClick={handleSaveBrandDnaProfile}
+              disabled={isSavingDna}
+              className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200 text-xs font-bold text-emerald-800 flex items-center gap-2 cursor-pointer transition-colors"
+              title="Click to save current Brand DNA snapshot"
+            >
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <div>
-                <div className="font-bold leading-tight">Saved Brand DNA Active</div>
-                <div className="text-[10px] text-emerald-700">
-                  {activeBrand.name} · Updated {activeBrand.brandDnaProfile?.updatedAt.slice(0, 10)}
-                </div>
-              </div>
-            </div>
+              <span>{isSavingDna ? 'Saving Brand DNA...' : 'Brand DNA Saved'}</span>
+            </button>
           ) : (
-            <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center gap-2">
+            <div className="px-3.5 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center gap-2">
               <InfoIcon />
               <span>No Brand DNA saved for {activeBrand.name} yet</span>
             </div>
@@ -891,102 +975,79 @@ export default function BrandDnaWorkspace({
         </div>
       </div>
 
-      {/* End-to-End Workflow Stepper */}
-      <div className="bg-white rounded-xl border border-slate-200/80 p-3.5 shadow-2xs grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-        <div className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg bg-blue-50/70 text-slate-900">
-          <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold text-[10px] flex items-center justify-center shrink-0">
+      {/* ================================================================= */}
+      {/* 2. 3-STEP WORKFLOW STEPPER                                        */}
+      {/* ================================================================= */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 p-3 shadow-2xs flex items-center justify-between gap-2 overflow-x-auto">
+        <div className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-blue-50/80 text-blue-700 font-bold text-xs min-w-[160px] justify-center">
+          <span className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold text-[11px] flex items-center justify-center shrink-0">
             1
           </span>
-          <div className="min-w-0">
-            <div className="font-bold truncate">Connect & Analyze</div>
-            <div className="text-[10px] text-slate-500 truncate">Website or Social Reference</div>
-          </div>
+          <span className="whitespace-nowrap">Analyze Source</span>
         </div>
 
+        <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
+
         <div
-          className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg ${
-            workingDna ? 'bg-blue-50/70 text-slate-900' : 'text-slate-400'
+          className={`flex items-center gap-2.5 px-4 py-2 rounded-xl font-bold text-xs min-w-[160px] justify-center border ${
+            extractedItems.length > 0
+              ? 'bg-slate-50 border-slate-200 text-slate-900'
+              : 'border-transparent text-slate-400'
           }`}
         >
           <span
-            className={`w-5 h-5 rounded-full font-bold text-[10px] flex items-center justify-center shrink-0 ${
-              workingDna ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'
+            className={`w-5 h-5 rounded-full font-bold text-[11px] flex items-center justify-center shrink-0 ${
+              extractedItems.length > 0 ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'
             }`}
           >
             2
           </span>
-          <div className="min-w-0">
-            <div className="font-bold truncate">Review & Save DNA</div>
-            <div className="text-[10px] text-slate-500 truncate">
-              {hasSavedProfile ? 'Saved to Brand Profile' : 'Edit & Save Rules'}
-            </div>
-          </div>
+          <span className="whitespace-nowrap">Extract Rules</span>
         </div>
 
+        <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
+
         <div
-          className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg ${
-            activeCheckResult ? 'bg-blue-50/70 text-slate-900' : 'text-slate-400'
+          className={`flex items-center gap-2.5 px-4 py-2 rounded-xl font-bold text-xs min-w-[160px] justify-center border ${
+            workingDna?.latestVerificationReport
+              ? 'bg-blue-50/80 border-blue-200 text-blue-700'
+              : 'bg-slate-50/70 border-slate-200/80 text-slate-700'
           }`}
         >
           <span
-            className={`w-5 h-5 rounded-full font-bold text-[10px] flex items-center justify-center shrink-0 ${
-              activeCheckResult ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'
+            className={`w-5 h-5 rounded-full font-bold text-[11px] flex items-center justify-center shrink-0 ${
+              workingDna?.latestVerificationReport
+                ? 'bg-blue-600 text-white'
+                : 'bg-slate-200 text-slate-700'
             }`}
           >
             3
           </span>
-          <div className="min-w-0">
-            <div className="font-bold truncate">Check Consistency</div>
-            <div className="text-[10px] text-slate-500 truncate">
-              {activeCheckResult ? `Score: ${activeCheckResult.overallScore}/100` : 'Upload New Creative'}
-            </div>
-          </div>
-        </div>
-
-        <div
-          className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg ${
-            activeCheckResult?.correctedImageUrl ? 'bg-emerald-50 text-emerald-950' : 'text-slate-400'
-          }`}
-        >
-          <span
-            className={`w-5 h-5 rounded-full font-bold text-[10px] flex items-center justify-center shrink-0 ${
-              activeCheckResult?.correctedImageUrl
-                ? 'bg-emerald-600 text-white'
-                : 'bg-slate-200 text-slate-600'
-            }`}
-          >
-            4
-          </span>
-          <div className="min-w-0">
-            <div className="font-bold truncate">One-Click Change</div>
-            <div className="text-[10px] text-slate-500 truncate">
-              {activeCheckResult?.correctedImageUrl ? 'Before & After Ready' : 'Auto-Remediate Issues'}
-            </div>
-          </div>
+          <span className="whitespace-nowrap">Check Content</span>
         </div>
       </div>
 
       {/* ================================================================= */}
-      {/* 2. SOURCE ANALYSIS PANEL (WEBSITE OR INSTAGRAM / SOCIAL MEDIA)    */}
+      {/* 3. SOURCE ANALYSIS PANEL (WEBSITE OR SOCIAL MEDIA)                */}
       {/* ================================================================= */}
-      <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs p-6 space-y-5">
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-6 space-y-5">
         {/* Source Option Tabs */}
-        <div className="border-b border-slate-200 flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-6">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => {
                 setSourceMode('website');
                 setAnalysisError(null);
               }}
-              className={`pb-3 px-1 flex items-center gap-2 text-xs font-semibold cursor-pointer border-b-2 transition-colors ${
+              className={`px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-bold cursor-pointer border-b-2 transition-all ${
                 sourceMode === 'website'
-                  ? 'text-blue-600 border-blue-600'
-                  : 'text-slate-500 hover:text-slate-800 border-transparent'
+                  ? 'bg-blue-50/80 text-blue-600 border-blue-600'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border-slate-200 border'
               }`}
             >
               <Globe className="w-4 h-4" />
-              <span>1. Analyze Website</span>
+              <span>Website</span>
             </button>
 
             <button
@@ -995,20 +1056,20 @@ export default function BrandDnaWorkspace({
                 setSourceMode('social');
                 setAnalysisError(null);
               }}
-              className={`pb-3 px-1 flex items-center gap-2 text-xs font-semibold cursor-pointer border-b-2 transition-colors ${
+              className={`px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-bold cursor-pointer border-b-2 transition-all ${
                 sourceMode === 'social'
-                  ? 'text-blue-600 border-blue-600'
-                  : 'text-slate-500 hover:text-slate-800 border-transparent'
+                  ? 'bg-blue-50/80 text-blue-600 border-blue-600'
+                  : 'bg-white text-slate-600 hover:bg-slate-50 border-slate-200 border'
               }`}
             >
               <Instagram className="w-4 h-4" />
-              <span>2. Analyze Instagram / Social Media</span>
+              <span>Social Media</span>
             </button>
           </div>
 
           {/* Previously Saved Brand DNA Profiles Switcher */}
           {(activeBrand.brandDnaHistory?.length || 0) > 0 && (
-            <div className="flex items-center gap-2 pb-2 text-xs">
+            <div className="flex items-center gap-2 text-xs">
               <span className="text-slate-500">Saved Snapshots:</span>
               <select
                 value={workingDna?.id || ''}
@@ -1020,7 +1081,8 @@ export default function BrandDnaWorkspace({
               >
                 {(activeBrand.brandDnaHistory || []).map(h => (
                   <option key={h.id} value={h.id}>
-                    {h.sourceType === 'website' ? 'Website' : 'Social'} — {h.updatedAt.slice(0, 10)} ({Math.round(h.overallConfidence * 100)}% conf)
+                    {h.sourceType === 'website' ? 'Website' : 'Social'} — {h.updatedAt.slice(0, 10)} (
+                    {Math.round(h.overallConfidence * 100)}% conf)
                   </option>
                 ))}
               </select>
@@ -1031,160 +1093,97 @@ export default function BrandDnaWorkspace({
         {/* OPTION 1: UNIVERSAL WEBSITE RULE EXTRACTION */}
         {sourceMode === 'website' && (
           <form onSubmit={e => handleAnalyzeWebsite(e)} className="space-y-4">
-            <div>
-              <div className="flex items-center justify-between flex-wrap gap-2 mb-1.5">
-                <label className="text-xs font-semibold text-slate-700">
-                  Enter Any Public Website URL (Platforms, Brands, E-Commerce, Corporate, Government, etc.)
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+              {/* Left Column: Choose a Website (Demo) */}
+              <div className="lg:col-span-6 space-y-2.5">
+                <label className="text-xs font-bold text-slate-800 block">
+                  Choose a Website (Demo)
                 </label>
-                <div className="flex items-center flex-wrap gap-1.5 text-[11px]">
-                  <span className="text-slate-400">Try universal extraction:</span>
-                  {[
-                    { label: 'YouTube', url: 'https://www.youtube.com' },
-                    { label: 'Nike', url: 'https://www.nike.com' },
-                    { label: 'Amazon', url: 'https://www.amazon.in' },
-                    { label: 'Flipkart', url: 'https://www.flipkart.com' },
-                    { label: 'Coca-Cola', url: 'https://www.coca-cola.com' },
-                    { label: 'Instagram', url: 'https://www.instagram.com' },
-                    { label: 'FSSAI Gov', url: 'https://www.fssai.gov.in' },
-                    { label: 'NovaPay Sample', url: `${window.location.origin}/sample-brand-site/novapay` }
-                  ].map((ex, idx) => (
-                    <React.Fragment key={ex.label}>
-                      {idx > 0 && <span className="text-slate-300">·</span>}
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                  {demoWebsitePresets.map(ex => {
+                    const isSelected = websiteUrl.toLowerCase().includes(
+                      ex.label.toLowerCase().replace('-', '')
+                    ) || websiteUrl.toLowerCase() === ex.url.toLowerCase();
+
+                    return (
                       <button
+                        key={ex.label}
                         type="button"
                         onClick={() => {
                           setWebsiteUrl(ex.url);
                           handleAnalyzeWebsite(undefined, ex.url);
                         }}
-                        className="text-blue-600 hover:text-blue-800 font-semibold underline cursor-pointer"
-                      >
-                        {ex.label}
-                      </button>
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-2.5">
-                <div className="relative flex-1">
-                  <Globe className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
-                  <input
-                    type="text"
-                    value={websiteUrl}
-                    onChange={e => {
-                      setWebsiteUrl(e.target.value);
-                      if (analysisError) setAnalysisError(null);
-                    }}
-                    placeholder="Enter any website URL (e.g., https://www.youtube.com, https://www.nike.com, https://www.amazon.in, https://www.coca-cola.com)"
-                    className="w-full pl-10 pr-3 py-2 text-xs border border-slate-200 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isAnalyzingWebsite || isRescanningWebsite}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-semibold text-xs rounded-lg shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-colors shrink-0"
-                >
-                  {isAnalyzingWebsite ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Extracting Website Rules...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      <span>Extract Website Rules</span>
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleRescanWebsite}
-                  disabled={isAnalyzingWebsite || isRescanningWebsite}
-                  className="px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-slate-900 font-semibold text-xs rounded-lg shadow-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors shrink-0"
-                  title="Rescan website to detect new pages or modified policy terms"
-                >
-                  {isRescanningWebsite ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-                      <span>Rescanning...</span>
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="w-4 h-4 text-slate-500" />
-                      <span>Rescan Website</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 mt-2">
-                <p className="text-[11px] text-slate-500">
-                  Automatically detects the website, domain, and organization, crawls accessible official policy & brand guideline pages, and extracts source-attributed rules for content verification.
-                </p>
-
-                {crawledPages.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowDiscoveredPagesDrawer(!showDiscoveredPagesDrawer)}
-                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
-                  >
-                    <span>
-                      {crawledPages.filter(p => p.status === 'crawled').length} pages crawled,{' '}
-                      {crawledPages.filter(p => p.status === 'inaccessible').length} restricted
-                    </span>
-                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showDiscoveredPagesDrawer ? 'rotate-180' : ''}`} />
-                  </button>
-                )}
-              </div>
-
-              {/* Quick Collapsible Discovered Pages Overview */}
-              {showDiscoveredPagesDrawer && crawledPages.length > 0 && (
-                <div className="mt-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2">
-                  <div className="flex items-center justify-between text-xs font-bold text-slate-900">
-                    <span>Discovered Internal Pages ({crawledPages.length})</span>
-                    <span className="text-[11px] text-slate-500 font-normal">
-                      Reporting public crawl status & restricted pages
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {crawledPages.map(page => (
-                      <div
-                        key={page.url}
-                        className={`p-2.5 rounded-lg border text-[11px] flex items-start justify-between gap-2 ${
-                          page.status === 'crawled'
-                            ? 'bg-white border-slate-200 text-slate-800'
-                            : 'bg-rose-50/80 border-rose-200 text-rose-900'
+                        className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all h-18 ${
+                          isSelected
+                            ? 'bg-blue-50/70 border-blue-500 ring-2 ring-blue-500/15 shadow-2xs'
+                            : 'bg-white hover:bg-slate-50 border-slate-200/90'
                         }`}
                       >
-                        <div className="min-w-0 flex-1">
-                          <div className="font-semibold truncate">{page.title}</div>
-                          <div className="text-[10px] text-slate-500 truncate">{page.path}</div>
-                          {page.status === 'inaccessible' && (
-                            <div className="text-[10px] text-rose-700 font-medium mt-0.5">
-                              {page.errorMessage || `HTTP ${page.httpStatus} Access Restricted`}
-                            </div>
-                          )}
+                        <div className="h-7 flex items-center justify-center">
+                          {ex.renderLogo()}
                         </div>
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${
-                            page.status === 'crawled'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-rose-200 text-rose-900'
-                          }`}
-                        >
-                          {page.status === 'crawled' ? `HTTP ${page.httpStatus}` : 'RESTRICTED'}
+                        <span className="text-[11px] font-semibold text-slate-800 truncate max-w-full">
+                          {ex.label}
                         </span>
-                      </div>
-                    ))}
-                  </div>
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
+              </div>
+
+              {/* Right Column: Or enter any website URL */}
+              <div className="lg:col-span-6 lg:border-l lg:border-slate-200 lg:pl-6 space-y-2.5">
+                <label className="text-xs font-bold text-slate-800 block">
+                  Or enter any website URL
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  <div className="relative flex-1">
+                    <Globe className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                    <input
+                      type="text"
+                      value={websiteUrl}
+                      onChange={e => {
+                        setWebsiteUrl(e.target.value);
+                        if (analysisError) setAnalysisError(null);
+                      }}
+                      placeholder="https://www.youtube.com"
+                      className="w-full pl-10 pr-8 py-2.5 text-xs font-medium border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50/40 focus:bg-white"
+                    />
+                    {websiteUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setWebsiteUrl('')}
+                        className="absolute right-2.5 top-2.5 p-0.5 rounded-full text-slate-400 hover:text-slate-600 cursor-pointer"
+                        title="Clear URL"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isAnalyzingWebsite || isRescanningWebsite}
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-colors shrink-0 whitespace-nowrap"
+                  >
+                    {isAnalyzingWebsite ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Extracting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        <span>Extract Rules</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
             </div>
 
             {(isAnalyzingWebsite || isRescanningWebsite) && analysisStepText && (
-              <div className="p-3.5 rounded-lg bg-blue-50/80 border border-blue-200 flex items-center gap-3 text-xs text-blue-950">
+              <div className="p-3.5 rounded-xl bg-blue-50/80 border border-blue-200 flex items-center gap-3 text-xs text-blue-950">
                 <Loader2 className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
                 <span className="font-medium">{analysisStepText}</span>
               </div>
@@ -1359,6 +1358,10 @@ export default function BrandDnaWorkspace({
           websiteUrl={websiteUrl}
           handleRescanWebsite={handleRescanWebsite}
           isRescanningWebsite={isRescanningWebsite}
+          onSelectWebsiteUrl={url => {
+            setWebsiteUrl(url);
+            handleAnalyzeWebsite(undefined, url);
+          }}
           triggerToast={triggerToast}
         />
       )}
